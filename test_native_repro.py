@@ -114,5 +114,45 @@ class NativeHarnessTests(unittest.TestCase):
         self.assertNotEqual(changed, expected)
 
 
+    def test_control_initialization_changes_only_dns_before_accepted_baseline(self):
+        host = {'Dns': None, 'DnsOptions': [], 'DnsSearch': [], 'ReadonlyRootfs': True,
+                'FutureField': {'keep': True}}
+        original = native.snapshot({'Env': ['SYNTHETIC=1']}, host,
+                                   {'/fixture': {'Destination': '/fixture', 'RW': False}})
+        saved = copy.deepcopy(original)
+        target, receipt = native.control_setup_snapshot(original)
+        self.assertEqual(original, saved)
+        self.assertEqual(receipt['initializedPaths'], ['/HostConfig/Dns'])
+        self.assertTrue(receipt['originalSnapshotPreserved'])
+        self.assertFalse(receipt['historicalRollbackClaim'])
+        self.assertEqual(receipt['kind'], 'SYNTHETIC_CONTROL_INITIALIZATION_BEFORE_BASELINE')
+        self.assertEqual(target['spec']['config'], original['spec']['config'])
+        self.assertEqual(target['spec']['mountpoints'], original['spec']['mountpoints'])
+        inverse = copy.deepcopy(target['spec']['hostconfig'])
+        for field in native.DNS_FIELDS:
+            self.assertEqual(target['spec']['hostconfig'][field], [])
+            inverse[field] = original['spec']['hostconfig'][field]
+        self.assertEqual(inverse, original['spec']['hostconfig'])
+        self.assertEqual(native.audit(target, copy.deepcopy(target), '29.1.3')['status'], 'PASS_EXACT_DISK_SPEC')
+        target['spec']['hostconfig']['FutureField']['keep'] = False
+        self.assertEqual(original, saved)
+
+    def test_control_initialization_rejects_incomplete_tampered_and_nonempty_dns(self):
+        for field in native.DNS_FIELDS:
+            for bad in [False, 0, '', {}, ['nonempty']]:
+                host = {'Dns': None, 'DnsOptions': [], 'DnsSearch': []}
+                host[field] = bad
+                with self.subTest(field=field, bad=bad), self.assertRaises(RuntimeError):
+                    native.control_setup_snapshot(native.snapshot({'Env': []}, host, {}))
+            host = {'Dns': None, 'DnsOptions': [], 'DnsSearch': []}
+            del host[field]
+            with self.subTest(missing=field), self.assertRaises(RuntimeError):
+                native.control_setup_snapshot(native.snapshot({'Env': []}, host, {}))
+        original = native.snapshot({'Env': []}, {'Dns': None, 'DnsOptions': [], 'DnsSearch': []}, {})
+        original['specSha256'] = '0' * 64
+        with self.assertRaises(RuntimeError):
+            native.control_setup_snapshot(original)
+
+
 if __name__ == '__main__':
     unittest.main()

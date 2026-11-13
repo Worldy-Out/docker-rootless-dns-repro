@@ -33,7 +33,7 @@ jobs:
           import hashlib,json,os
           from pathlib import Path
           evidence={}
-          for name in ['synthetic-before.json','synthetic-cold-readback.json','synthetic-checkpoint-readback.json','synthetic-after.json','result.json']:
+          for name in ['synthetic-setup-before.json','synthetic-before.json','synthetic-cold-readback.json','synthetic-checkpoint-readback.json','synthetic-after.json','result.json']:
               p=Path('results')/name
               if p.exists():
                   raw=p.read_bytes()

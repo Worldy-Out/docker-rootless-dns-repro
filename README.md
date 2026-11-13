@@ -12,9 +12,11 @@ x86-64 runner, an isolated rootless Engine, and tiny BusyBox fixtures.
 
 1. Create two synthetic containers on an internal network with no published ports.
 2. Materialize their initial stopped state with harmless `/bin/true` setup runs.
-3. Stop the dedicated Engine and capture full Config, HostConfig, MountPoints,
-   attachment maps and raw fingerprints.
-4. Seed exactly three legacy `null` DNS values in the new test fixture only.
+3. Stop the dedicated Engine. Initialize the new control container with three
+   explicit empty DNS lists; retain its pre-initialization snapshot and exact
+   setup diff. Take its accepted baseline only after this synthetic setup.
+4. Seed exactly three legacy `null` DNS values in the test fixture. Capture full
+   Config, HostConfig, MountPoints, attachment maps and raw fingerprints for both.
 5. Start the same Engine once and compare readback against a separate expected
    map applying only Docker's three explicit DNS null-to-empty defaults. Preserve
    the original unmodified Engine baseline and record those projected paths.

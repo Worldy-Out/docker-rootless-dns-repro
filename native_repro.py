@@ -24,7 +24,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from disk_metadata import DNS_FIELDS, audit, fingerprints, read_snapshot
+from disk_metadata import DNS_FIELDS, audit, checked, fingerprints, read_snapshot, snapshot
 
 UID = 16013
 USER = 'docker-repro'
@@ -295,6 +295,8 @@ def pull_and_create():
         require(re.fullmatch(r'[a-f0-9]{64}', cid), 'Invalid synthetic container ID')
         ids[name] = cid
         STATE['containerIds'].append(cid)
+        if name == 'control':
+            STATE['controlId'] = cid
         # Materialize its ordinary endpoint once, before capturing any baseline.
         # The cold-reload scenario below starts only the fixture, once.
         docker('start', cid)
@@ -308,6 +310,50 @@ def pull_and_create():
     return ids, network
 
 
+def control_setup_snapshot(original):
+    """Initialize a newly created synthetic positive control before baseline.
+
+    This is disclosed fixture construction, not an audit allowance. The raw
+    pre-initialization snapshot remains intact and the control audit stays exact.
+    """
+    spec = checked(original)
+    host = copy.deepcopy(spec['hostconfig'])
+    for field in DNS_FIELDS:
+        require(field in host and (host[field] is None or (type(host[field]) is list and host[field] == [])),
+                'Synthetic control requires explicit null or empty DNS fields')
+        host[field] = []
+    target = snapshot(spec['config'], host, spec['mountpoints'])
+    receipt = {'kind': 'SYNTHETIC_CONTROL_INITIALIZATION_BEFORE_BASELINE',
+               'initializedPaths': diff_paths({'HostConfig': spec['hostconfig']}, {'HostConfig': host}),
+               'before': fingerprints(original), 'after': fingerprints(target),
+               'originalSnapshotPreserved': True, 'historicalRollbackClaim': False}
+    return target, receipt
+
+
+def initialize_control(directory, original):
+    require(directory == HOME_DIR / 'docker/containers' / STATE['controlId']
+            and directory.name in STATE['containerIds'], 'Only the newly created synthetic control may be initialized')
+    stop_proof()
+    require(read_snapshot(directory, UID) == original, 'Control changed before initialization')
+    target, receipt = control_setup_snapshot(original)
+    file = directory / 'hostconfig.json'
+    meta = file.lstat()
+    require(stat.S_ISREG(meta.st_mode) and meta.st_uid == UID and meta.st_nlink == 1
+            and stat.S_IMODE(meta.st_mode) == 0o600 and not file.is_symlink(), 'Unsafe owned control metadata')
+    fd = os.open(file, os.O_WRONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, 'w') as output:
+        current = os.fstat(output.fileno())
+        require((current.st_dev, current.st_ino, current.st_uid, current.st_mode, current.st_nlink)
+                == (meta.st_dev, meta.st_ino, meta.st_uid, meta.st_mode, meta.st_nlink), 'Control metadata inode changed')
+        output.truncate(0)
+        output.write(json.dumps(target['spec']['hostconfig'], separators=(',', ':')) + '\n')
+        output.flush()
+        os.fsync(output.fileno())
+    actual = read_snapshot(directory, UID)
+    require(actual == target, 'Control initialization changed unrelated fields')
+    return actual, receipt
+
+
 def scenario(out):
     initial_info = start_engine()
     ids, network = pull_and_create()
@@ -316,6 +362,12 @@ def scenario(out):
     cold_expected, projection = expected_cold_engine(before_engine, initial_info['ServerVersion'])
     stop_engine()
     before_disk = {name: read_snapshot(HOME_DIR / 'docker/containers' / cid, UID) for name, cid in ids.items()}
+    write(out / 'synthetic-setup-before.json', {'disk': before_disk, 'engine': before_engine,
+                                              'network': before_network}, 0o644)
+    STATE['stage'] = 'initialize_new_control_before_baseline'
+    original_control = copy.deepcopy(before_disk['control'])
+    before_disk['control'], control_setup = initialize_control(
+        HOME_DIR / 'docker/containers' / ids['control'], original_control)
     STATE['stage'] = 'seed_legacy_nulls_engine_stopped'
     stop_proof()
     file = HOME_DIR / 'docker/containers' / ids['fixture'] / 'hostconfig.json'
@@ -336,7 +388,9 @@ def scenario(out):
             and seeded['spec']['mountpoints'] == before_disk['fixture']['spec']['mountpoints'], 'Seed changed unrelated components')
     before_disk['fixture'] = seeded
     write(out / 'synthetic-before.json', {'disk': before_disk, 'engine': before_engine, 'network': before_network,
-                                         'derivedColdEngineExpected': cold_expected, 'coldEngineProjection': projection}, 0o644)
+                                         'derivedColdEngineExpected': cold_expected, 'coldEngineProjection': projection,
+                                         'controlBeforeInitialization': original_control,
+                                         'controlInitialization': control_setup}, 0o644)
     STATE['stage'] = 'cold_engine_reload'
     start_engine()
     _, cold, paths = capture_readback(out, 'cold', ids, network, cold_expected, before_network)
@@ -362,7 +416,8 @@ def scenario(out):
     require(receipts['control']['status'] == 'PASS_EXACT_DISK_SPEC', 'Control raw disk changed')
     require(receipts['fixture']['status'] == 'PASS_CONFIRMED_DOCKER_29_1_3_DNS_DEFAULTS', 'Expected DNS persistence transition missing')
     return {'status': 'PASS', 'dockerVersion': '29.1.3', 'image': IMAGE, 'audit': receipts,
-            'coldEngineProjection': projection,
+            'coldEngineProjection': projection, 'controlInitializedEmptyDns': True,
+            'controlInitialization': control_setup,
             'rawBefore': {name: fingerprints(value) for name, value in before_disk.items()},
             'rawAfter': {name: fingerprints(value) for name, value in after_disk.items()},
             'setupContainerStarts': 2, 'scenarioContainerStarts': 1, 'scenarioProcess': '/bin/true',
