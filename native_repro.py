@@ -155,6 +155,30 @@ def diff_paths(before, after, path=''):
     return [path or '/']
 
 
+def expected_cold_engine(raw_before, engine_version):
+    """Derived expectation, not a historical snapshot or a disk mutation.
+
+    The native diagnostic proved that readHostConfig maps these explicit null
+    DNS values to empty lists in Docker 29.1.3. Every other field is unchanged.
+    Raw input is retained separately and never rewritten by this helper.
+    """
+    require(engine_version == '29.1.3', 'Cold DNS expectation requires Docker 29.1.3')
+    require(isinstance(raw_before, dict) and bool(raw_before), 'Full Engine baseline required')
+    expected = copy.deepcopy(raw_before)
+    for row in expected.values():
+        require(isinstance(row, dict) and isinstance(row.get('HostConfig'), dict), 'Full HostConfig required')
+        host = row['HostConfig']
+        for field in DNS_FIELDS:
+            require(field in host and (host[field] is None or (type(host[field]) is list and host[field] == [])),
+                    'Cold DNS expectation requires explicit null or empty list: ' + field)
+            host[field] = []
+    projection = {'kind': 'DERIVED_COLD_ENGINE_EXPECTATION', 'engineVersion': engine_version,
+                  'projectedPaths': diff_paths({'engine': raw_before}, {'engine': expected}),
+                  'rawBaselineRewritten': False, 'diskMutatedByProjection': False,
+                  'source': 'https://github.com/moby/moby/blob/docker-v29.1.3/daemon/container/container.go#L619-L633'}
+    return expected, projection
+
+
 def capture_readback(out, phase, ids, network, before_engine, before_network):
     raw = {name: inspect(cid) for name, cid in ids.items()}
     current = {'engine': {name: protected(row) for name, row in raw.items()},
@@ -285,10 +309,11 @@ def pull_and_create():
 
 
 def scenario(out):
-    start_engine()
+    initial_info = start_engine()
     ids, network = pull_and_create()
     before_engine = {name: protected(inspect(cid)) for name, cid in ids.items()}
     before_network = network_snapshot(network)
+    cold_expected, projection = expected_cold_engine(before_engine, initial_info['ServerVersion'])
     stop_engine()
     before_disk = {name: read_snapshot(HOME_DIR / 'docker/containers' / cid, UID) for name, cid in ids.items()}
     STATE['stage'] = 'seed_legacy_nulls_engine_stopped'
@@ -310,31 +335,34 @@ def scenario(out):
     require(seeded['spec']['config'] == before_disk['fixture']['spec']['config']
             and seeded['spec']['mountpoints'] == before_disk['fixture']['spec']['mountpoints'], 'Seed changed unrelated components')
     before_disk['fixture'] = seeded
-    write(out / 'synthetic-before.json', {'disk': before_disk, 'engine': before_engine, 'network': before_network}, 0o644)
+    write(out / 'synthetic-before.json', {'disk': before_disk, 'engine': before_engine, 'network': before_network,
+                                         'derivedColdEngineExpected': cold_expected, 'coldEngineProjection': projection}, 0o644)
     STATE['stage'] = 'cold_engine_reload'
     start_engine()
-    _, cold, paths = capture_readback(out, 'cold', ids, network, before_engine, before_network)
+    _, cold, paths = capture_readback(out, 'cold', ids, network, cold_expected, before_network)
     for name in ids:
-        require(cold['engine'][name] == before_engine[name], 'Cold reload changed protected spec or full attachments: ' + paths)
+        require(cold['engine'][name] == cold_expected[name], 'Cold reload changed protected spec or full attachments: ' + paths)
     require(cold['network'] == before_network, 'Cold reload changed full network snapshot: ' + paths)
     STATE['stage'] = 'single_fixture_checkpoint'
     docker('start', ids['fixture'])
     remember_groups()
     require(docker('wait', ids['fixture']).stdout.strip() == '0', 'Checkpoint /bin/true failed')
-    raw_checkpoint, checkpoint, paths = capture_readback(out, 'checkpoint', ids, network, before_engine, before_network)
+    raw_checkpoint, checkpoint, paths = capture_readback(out, 'checkpoint', ids, network, cold_expected, before_network)
     for name in ids:
         current = raw_checkpoint[name]
         require(not any(current['State'].get(key) for key in ['Running', 'Paused', 'Restarting', 'Pid']), 'Checkpoint container not stopped')
-        require(checkpoint['engine'][name] == before_engine[name], 'Checkpoint changed protected spec or full attachments: ' + paths)
+        require(checkpoint['engine'][name] == cold_expected[name], 'Checkpoint changed protected spec or full attachments: ' + paths)
     require(checkpoint['network'] == before_network, 'Checkpoint changed full network snapshot: ' + paths)
     stopped = stop_engine()
     STATE['stage'] = 'disk_audit'
     after_disk = {name: read_snapshot(HOME_DIR / 'docker/containers' / cid, UID) for name, cid in ids.items()}
+    # Preserve raw after evidence even if the deliberately strict audit rejects it.
+    write(out / 'synthetic-after.json', {'disk': after_disk}, 0o644)
     receipts = {name: audit(before_disk[name], after_disk[name], '29.1.3') for name in ids}
     require(receipts['control']['status'] == 'PASS_EXACT_DISK_SPEC', 'Control raw disk changed')
     require(receipts['fixture']['status'] == 'PASS_CONFIRMED_DOCKER_29_1_3_DNS_DEFAULTS', 'Expected DNS persistence transition missing')
-    write(out / 'synthetic-after.json', {'disk': after_disk, 'audit': receipts}, 0o644)
     return {'status': 'PASS', 'dockerVersion': '29.1.3', 'image': IMAGE, 'audit': receipts,
+            'coldEngineProjection': projection,
             'rawBefore': {name: fingerprints(value) for name, value in before_disk.items()},
             'rawAfter': {name: fingerprints(value) for name, value in after_disk.items()},
             'setupContainerStarts': 2, 'scenarioContainerStarts': 1, 'scenarioProcess': '/bin/true',

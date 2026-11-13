@@ -15,8 +15,10 @@ x86-64 runner, an isolated rootless Engine, and tiny BusyBox fixtures.
 3. Stop the dedicated Engine and capture full Config, HostConfig, MountPoints,
    attachment maps and raw fingerprints.
 4. Seed exactly three legacy `null` DNS values in the new test fixture only.
-5. Start the same Engine once, read back every protected field, then perform one
-   harmless fixture lifecycle checkpoint and stop the Engine again.
+5. Start the same Engine once and compare readback against a separate expected
+   map applying only Docker's three explicit DNS null-to-empty defaults. Preserve
+   the original unmodified Engine baseline and record those projected paths.
+   Perform one harmless fixture checkpoint and stop the Engine again.
 6. Accept only the exact three-field transition for Docker 29.1.3. Keep raw
    before/after snapshots and hashes distinct. All other fields, full attachment maps,
    the created internal network and the control container must remain exact.

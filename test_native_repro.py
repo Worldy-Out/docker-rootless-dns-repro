@@ -54,5 +54,65 @@ class NativeHarnessTests(unittest.TestCase):
             native.protected(row)
 
 
+    def engine_baseline(self):
+        return {'control': {'Id': 'control-id', 'Config': {'Env': ['SYNTHETIC=1']},
+                            'HostConfig': {'Dns': None, 'DnsOptions': [], 'DnsSearch': [], 'ReadonlyRootfs': True},
+                            'NetworkSettings': {'net': {'NetworkID': 'network-id', 'Aliases': ['control'], 'DNSNames': ['control']}}},
+                'fixture': {'Id': 'fixture-id', 'Config': {'Env': []},
+                            'HostConfig': {'Dns': None, 'DnsOptions': None, 'DnsSearch': None, 'ReadonlyRootfs': True},
+                            'NetworkSettings': {'net': {'NetworkID': 'network-id', 'Aliases': ['fixture'], 'IPAMConfig': None}}}}
+
+    def test_cold_projection_is_explicit_versioned_and_never_mutates_baseline(self):
+        before = self.engine_baseline()
+        saved = copy.deepcopy(before)
+        expected, receipt = native.expected_cold_engine(before, '29.1.3')
+        self.assertEqual(before, saved)
+        self.assertEqual(receipt['projectedPaths'], ['/engine/control/HostConfig/Dns',
+            '/engine/fixture/HostConfig/Dns', '/engine/fixture/HostConfig/DnsOptions', '/engine/fixture/HostConfig/DnsSearch'])
+        self.assertFalse(receipt['rawBaselineRewritten'])
+        self.assertFalse(receipt['diskMutatedByProjection'])
+        self.assertEqual(receipt['kind'], 'DERIVED_COLD_ENGINE_EXPECTATION')
+        for row in expected.values():
+            for field in native.DNS_FIELDS:
+                self.assertEqual(row['HostConfig'][field], [])
+        expected['fixture']['NetworkSettings']['net']['Aliases'].append('changed')
+        self.assertEqual(before, saved)
+
+    def test_cold_projection_rejects_unknown_version_missing_or_invalid_dns(self):
+        for version in ['29.1.2', '29.1.3-custom', None]:
+            with self.subTest(version=version), self.assertRaises(RuntimeError):
+                native.expected_cold_engine(self.engine_baseline(), version)
+        for field in native.DNS_FIELDS:
+            before = self.engine_baseline()
+            del before['fixture']['HostConfig'][field]
+            with self.subTest(missing=field), self.assertRaises(RuntimeError):
+                native.expected_cold_engine(before, '29.1.3')
+            for value in [False, 0, '', {}, (), ['nonempty']]:
+                before = self.engine_baseline()
+                before['fixture']['HostConfig'][field] = value
+                with self.subTest(field=field, value=value), self.assertRaises(RuntimeError):
+                    native.expected_cold_engine(before, '29.1.3')
+
+    def test_cold_projection_preserves_every_other_field_and_full_attachments(self):
+        before = self.engine_baseline()
+        expected, _ = native.expected_cold_engine(before, '29.1.3')
+        inverse = copy.deepcopy(expected)
+        for name in inverse:
+            for field in native.DNS_FIELDS:
+                inverse[name]['HostConfig'][field] = before[name]['HostConfig'][field]
+        self.assertEqual(inverse, before)
+        for key, value in [('NetworkID', 'other-network'), ('Aliases', ['other']),
+                           ('DNSNames', ['other']), ('IPAMConfig', {'IPv4Address': 'synthetic'})]:
+            changed = copy.deepcopy(expected)
+            changed['fixture']['NetworkSettings']['net'][key] = value
+            self.assertNotEqual(changed, expected)
+        changed = copy.deepcopy(expected)
+        changed['fixture']['HostConfig']['ReadonlyRootfs'] = False
+        self.assertNotEqual(changed, expected)
+        changed = copy.deepcopy(expected)
+        changed['fixture']['Config']['Env'] = ['CHANGED=1']
+        self.assertNotEqual(changed, expected)
+
+
 if __name__ == '__main__':
     unittest.main()
