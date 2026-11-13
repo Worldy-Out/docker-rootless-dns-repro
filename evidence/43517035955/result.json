@@ -1,0 +1,575 @@
+{
+  "archiveProvenance": "SHA256 computed from official HTTPS archives; not a publisher signature",
+  "archiveSha256": {
+    "docker-29.1.3.tgz": "c019c608ba2bb009dd673f3230e4d743f36a78d36166c6c2444c05d0aa9ff0d9",
+    "docker-rootless-extras-29.1.3.tgz": "32dc3dd0d8b512ccf30a7efe84d360b5ade65ac4fec92a2a5ad0fe791da6ab0d"
+  },
+  "audit": {
+    "control": {
+      "after": {
+        "componentSha256": {
+          "config": "ffdab4348d7c75615fbd6254f7440c5580272f0b663643e32ed0c45c17628c62",
+          "hostconfig": "a9082e50762768200f0d9362be49f0a437438b883f7130e2c3e201eed6855c2d",
+          "mountpoints": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+        },
+        "specSha256": "756562636d5d5b6569f0d4aa62c26f59c535b020eaca0958054185d9b6fe3deb"
+      },
+      "baselineRewritten": false,
+      "before": {
+        "componentSha256": {
+          "config": "ffdab4348d7c75615fbd6254f7440c5580272f0b663643e32ed0c45c17628c62",
+          "hostconfig": "a9082e50762768200f0d9362be49f0a437438b883f7130e2c3e201eed6855c2d",
+          "mountpoints": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+        },
+        "specSha256": "756562636d5d5b6569f0d4aa62c26f59c535b020eaca0958054185d9b6fe3deb"
+      },
+      "changedPaths": [],
+      "diskMutatedByAudit": false,
+      "engineVersion": "29.1.3",
+      "fullPrivateBeforeAndAfterVerified": true,
+      "hostConfigAfter": {
+        "AutoRemove": false,
+        "Binds": null,
+        "BlkioDeviceReadBps": [],
+        "BlkioDeviceReadIOps": [],
+        "BlkioDeviceWriteBps": [],
+        "BlkioDeviceWriteIOps": [],
+        "BlkioWeight": 0,
+        "BlkioWeightDevice": [],
+        "CapAdd": null,
+        "CapDrop": [
+          "ALL"
+        ],
+        "Cgroup": "",
+        "CgroupParent": "",
+        "CgroupnsMode": "private",
+        "ConsoleSize": [
+          0,
+          0
+        ],
+        "ContainerIDFile": "",
+        "CpuCount": 0,
+        "CpuPercent": 0,
+        "CpuPeriod": 0,
+        "CpuQuota": 0,
+        "CpuRealtimePeriod": 0,
+        "CpuRealtimeRuntime": 0,
+        "CpuShares": 0,
+        "CpusetCpus": "",
+        "CpusetMems": "",
+        "DeviceCgroupRules": null,
+        "DeviceRequests": null,
+        "Devices": [],
+        "Dns": [],
+        "DnsOptions": [],
+        "DnsSearch": [],
+        "ExtraHosts": null,
+        "GroupAdd": null,
+        "IOMaximumBandwidth": 0,
+        "IOMaximumIOps": 0,
+        "IpcMode": "private",
+        "Isolation": "",
+        "Links": null,
+        "LogConfig": {
+          "Config": {},
+          "Type": "local"
+        },
+        "MaskedPaths": [
+          "/proc/acpi",
+          "/proc/asound",
+          "/proc/interrupts",
+          "/proc/kcore",
+          "/proc/keys",
+          "/proc/latency_stats",
+          "/proc/sched_debug",
+          "/proc/scsi",
+          "/proc/timer_list",
+          "/proc/timer_stats",
+          "/sys/devices/virtual/powercap",
+          "/sys/firmware"
+        ],
+        "Memory": 33554432,
+        "MemoryReservation": 0,
+        "MemorySwap": 33554432,
+        "MemorySwappiness": null,
+        "NanoCpus": 0,
+        "NetworkMode": "dns-repro-internal",
+        "OomKillDisable": null,
+        "OomScoreAdj": 200,
+        "PidMode": "",
+        "PidsLimit": 32,
+        "PortBindings": {},
+        "Privileged": false,
+        "PublishAllPorts": false,
+        "ReadonlyPaths": [
+          "/proc/bus",
+          "/proc/fs",
+          "/proc/irq",
+          "/proc/sys",
+          "/proc/sysrq-trigger"
+        ],
+        "ReadonlyRootfs": true,
+        "RestartPolicy": {
+          "MaximumRetryCount": 0,
+          "Name": "no"
+        },
+        "Runtime": "runc",
+        "SecurityOpt": [
+          "no-new-privileges"
+        ],
+        "ShmSize": 67108864,
+        "UTSMode": "",
+        "Ulimits": [],
+        "UsernsMode": "",
+        "VolumeDriver": "",
+        "VolumesFrom": null
+      },
+      "hostConfigBefore": {
+        "AutoRemove": false,
+        "Binds": null,
+        "BlkioDeviceReadBps": [],
+        "BlkioDeviceReadIOps": [],
+        "BlkioDeviceWriteBps": [],
+        "BlkioDeviceWriteIOps": [],
+        "BlkioWeight": 0,
+        "BlkioWeightDevice": [],
+        "CapAdd": null,
+        "CapDrop": [
+          "ALL"
+        ],
+        "Cgroup": "",
+        "CgroupParent": "",
+        "CgroupnsMode": "private",
+        "ConsoleSize": [
+          0,
+          0
+        ],
+        "ContainerIDFile": "",
+        "CpuCount": 0,
+        "CpuPercent": 0,
+        "CpuPeriod": 0,
+        "CpuQuota": 0,
+        "CpuRealtimePeriod": 0,
+        "CpuRealtimeRuntime": 0,
+        "CpuShares": 0,
+        "CpusetCpus": "",
+        "CpusetMems": "",
+        "DeviceCgroupRules": null,
+        "DeviceRequests": null,
+        "Devices": [],
+        "Dns": [],
+        "DnsOptions": [],
+        "DnsSearch": [],
+        "ExtraHosts": null,
+        "GroupAdd": null,
+        "IOMaximumBandwidth": 0,
+        "IOMaximumIOps": 0,
+        "IpcMode": "private",
+        "Isolation": "",
+        "Links": null,
+        "LogConfig": {
+          "Config": {},
+          "Type": "local"
+        },
+        "MaskedPaths": [
+          "/proc/acpi",
+          "/proc/asound",
+          "/proc/interrupts",
+          "/proc/kcore",
+          "/proc/keys",
+          "/proc/latency_stats",
+          "/proc/sched_debug",
+          "/proc/scsi",
+          "/proc/timer_list",
+          "/proc/timer_stats",
+          "/sys/devices/virtual/powercap",
+          "/sys/firmware"
+        ],
+        "Memory": 33554432,
+        "MemoryReservation": 0,
+        "MemorySwap": 33554432,
+        "MemorySwappiness": null,
+        "NanoCpus": 0,
+        "NetworkMode": "dns-repro-internal",
+        "OomKillDisable": null,
+        "OomScoreAdj": 200,
+        "PidMode": "",
+        "PidsLimit": 32,
+        "PortBindings": {},
+        "Privileged": false,
+        "PublishAllPorts": false,
+        "ReadonlyPaths": [
+          "/proc/bus",
+          "/proc/fs",
+          "/proc/irq",
+          "/proc/sys",
+          "/proc/sysrq-trigger"
+        ],
+        "ReadonlyRootfs": true,
+        "RestartPolicy": {
+          "MaximumRetryCount": 0,
+          "Name": "no"
+        },
+        "Runtime": "runc",
+        "SecurityOpt": [
+          "no-new-privileges"
+        ],
+        "ShmSize": 67108864,
+        "UTSMode": "",
+        "Ulimits": [],
+        "UsernsMode": "",
+        "VolumeDriver": "",
+        "VolumesFrom": null
+      },
+      "rawEqual": true,
+      "schema": 1,
+      "status": "PASS_EXACT_DISK_SPEC"
+    },
+    "fixture": {
+      "after": {
+        "componentSha256": {
+          "config": "d602b796acc679a4cc8306caa3ecbde1298ee185d2e6de4932e8ffefda3f0ed1",
+          "hostconfig": "b172582e21f9e357af32db06727d2db0253aabefba0e034ad75f0a769b505c49",
+          "mountpoints": "d1d9c513578811e7f8329fad5eb35ea2a478c22c1b0412ea09c269d12010ea19"
+        },
+        "specSha256": "267f313fd8e35a5edfd32a71e40e3b1c88789c56a3949a85fa23e8b1ceb6a63a"
+      },
+      "baselineRewritten": false,
+      "before": {
+        "componentSha256": {
+          "config": "d602b796acc679a4cc8306caa3ecbde1298ee185d2e6de4932e8ffefda3f0ed1",
+          "hostconfig": "acf5c9adf75b082257b82dff02ffe33f4c01ce1fe78e11fd772a5971ab5fe942",
+          "mountpoints": "d1d9c513578811e7f8329fad5eb35ea2a478c22c1b0412ea09c269d12010ea19"
+        },
+        "specSha256": "07bffb68cced75f6df05a9272ee0a95bb97fc00f9c648d731473992612f8093a"
+      },
+      "changedPaths": [
+        "HostConfig/Dns",
+        "HostConfig/DnsOptions",
+        "HostConfig/DnsSearch"
+      ],
+      "currentValue": [],
+      "diskMutatedByAudit": false,
+      "engineVersion": "29.1.3",
+      "fullPrivateBeforeAndAfterVerified": true,
+      "hostConfigAfter": {
+        "AutoRemove": false,
+        "Binds": [
+          "/var/lib/docker-dns-repro/bind-fixture:/fixture:ro"
+        ],
+        "BlkioDeviceReadBps": [],
+        "BlkioDeviceReadIOps": [],
+        "BlkioDeviceWriteBps": [],
+        "BlkioDeviceWriteIOps": [],
+        "BlkioWeight": 0,
+        "BlkioWeightDevice": [],
+        "CapAdd": null,
+        "CapDrop": [
+          "ALL"
+        ],
+        "Cgroup": "",
+        "CgroupParent": "",
+        "CgroupnsMode": "private",
+        "ConsoleSize": [
+          0,
+          0
+        ],
+        "ContainerIDFile": "",
+        "CpuCount": 0,
+        "CpuPercent": 0,
+        "CpuPeriod": 0,
+        "CpuQuota": 0,
+        "CpuRealtimePeriod": 0,
+        "CpuRealtimeRuntime": 0,
+        "CpuShares": 0,
+        "CpusetCpus": "",
+        "CpusetMems": "",
+        "DeviceCgroupRules": null,
+        "DeviceRequests": null,
+        "Devices": [],
+        "Dns": [],
+        "DnsOptions": [],
+        "DnsSearch": [],
+        "ExtraHosts": null,
+        "GroupAdd": null,
+        "IOMaximumBandwidth": 0,
+        "IOMaximumIOps": 0,
+        "IpcMode": "private",
+        "Isolation": "",
+        "Links": null,
+        "LogConfig": {
+          "Config": {},
+          "Type": "local"
+        },
+        "MaskedPaths": [
+          "/proc/acpi",
+          "/proc/asound",
+          "/proc/interrupts",
+          "/proc/kcore",
+          "/proc/keys",
+          "/proc/latency_stats",
+          "/proc/sched_debug",
+          "/proc/scsi",
+          "/proc/timer_list",
+          "/proc/timer_stats",
+          "/sys/devices/virtual/powercap",
+          "/sys/firmware"
+        ],
+        "Memory": 33554432,
+        "MemoryReservation": 0,
+        "MemorySwap": 33554432,
+        "MemorySwappiness": null,
+        "NanoCpus": 0,
+        "NetworkMode": "dns-repro-internal",
+        "OomKillDisable": null,
+        "OomScoreAdj": 200,
+        "PidMode": "",
+        "PidsLimit": 32,
+        "PortBindings": {},
+        "Privileged": false,
+        "PublishAllPorts": false,
+        "ReadonlyPaths": [
+          "/proc/bus",
+          "/proc/fs",
+          "/proc/irq",
+          "/proc/sys",
+          "/proc/sysrq-trigger"
+        ],
+        "ReadonlyRootfs": true,
+        "RestartPolicy": {
+          "MaximumRetryCount": 0,
+          "Name": "no"
+        },
+        "Runtime": "runc",
+        "SecurityOpt": [
+          "no-new-privileges"
+        ],
+        "ShmSize": 67108864,
+        "UTSMode": "",
+        "Ulimits": [],
+        "UsernsMode": "",
+        "VolumeDriver": "",
+        "VolumesFrom": null
+      },
+      "hostConfigBefore": {
+        "AutoRemove": false,
+        "Binds": [
+          "/var/lib/docker-dns-repro/bind-fixture:/fixture:ro"
+        ],
+        "BlkioDeviceReadBps": [],
+        "BlkioDeviceReadIOps": [],
+        "BlkioDeviceWriteBps": [],
+        "BlkioDeviceWriteIOps": [],
+        "BlkioWeight": 0,
+        "BlkioWeightDevice": [],
+        "CapAdd": null,
+        "CapDrop": [
+          "ALL"
+        ],
+        "Cgroup": "",
+        "CgroupParent": "",
+        "CgroupnsMode": "private",
+        "ConsoleSize": [
+          0,
+          0
+        ],
+        "ContainerIDFile": "",
+        "CpuCount": 0,
+        "CpuPercent": 0,
+        "CpuPeriod": 0,
+        "CpuQuota": 0,
+        "CpuRealtimePeriod": 0,
+        "CpuRealtimeRuntime": 0,
+        "CpuShares": 0,
+        "CpusetCpus": "",
+        "CpusetMems": "",
+        "DeviceCgroupRules": null,
+        "DeviceRequests": null,
+        "Devices": [],
+        "Dns": null,
+        "DnsOptions": null,
+        "DnsSearch": null,
+        "ExtraHosts": null,
+        "GroupAdd": null,
+        "IOMaximumBandwidth": 0,
+        "IOMaximumIOps": 0,
+        "IpcMode": "private",
+        "Isolation": "",
+        "Links": null,
+        "LogConfig": {
+          "Config": {},
+          "Type": "local"
+        },
+        "MaskedPaths": [
+          "/proc/acpi",
+          "/proc/asound",
+          "/proc/interrupts",
+          "/proc/kcore",
+          "/proc/keys",
+          "/proc/latency_stats",
+          "/proc/sched_debug",
+          "/proc/scsi",
+          "/proc/timer_list",
+          "/proc/timer_stats",
+          "/sys/devices/virtual/powercap",
+          "/sys/firmware"
+        ],
+        "Memory": 33554432,
+        "MemoryReservation": 0,
+        "MemorySwap": 33554432,
+        "MemorySwappiness": null,
+        "NanoCpus": 0,
+        "NetworkMode": "dns-repro-internal",
+        "OomKillDisable": null,
+        "OomScoreAdj": 200,
+        "PidMode": "",
+        "PidsLimit": 32,
+        "PortBindings": {},
+        "Privileged": false,
+        "PublishAllPorts": false,
+        "ReadonlyPaths": [
+          "/proc/bus",
+          "/proc/fs",
+          "/proc/irq",
+          "/proc/sys",
+          "/proc/sysrq-trigger"
+        ],
+        "ReadonlyRootfs": true,
+        "RestartPolicy": {
+          "MaximumRetryCount": 0,
+          "Name": "no"
+        },
+        "Runtime": "runc",
+        "SecurityOpt": [
+          "no-new-privileges"
+        ],
+        "ShmSize": 67108864,
+        "UTSMode": "",
+        "Ulimits": [],
+        "UsernsMode": "",
+        "VolumeDriver": "",
+        "VolumesFrom": null
+      },
+      "priorValue": null,
+      "rawEqual": false,
+      "schema": 1,
+      "source": "https://github.com/moby/moby/blob/docker-v29.1.3/daemon/container/container.go#L619-L633",
+      "status": "PASS_CONFIRMED_DOCKER_29_1_3_DNS_DEFAULTS"
+    }
+  },
+  "automaticRetries": 0,
+  "cleanup": {
+    "engine": {
+      "allSyntheticContainersStopped": true,
+      "engineMainPID": 0,
+      "engineProcesses": 0,
+      "engineSocketUnavailable": true,
+      "engineState": "inactive",
+      "recordedCgroupsEmpty": true
+    },
+    "fixtureUserProcesses": 0,
+    "lingerDisabled": true,
+    "scopedPolicyRemoved": true,
+    "status": "PASS",
+    "syntheticFilesPreservedForRunnerDisposal": true
+  },
+  "coldEngineProjection": {
+    "diskMutatedByProjection": false,
+    "engineVersion": "29.1.3",
+    "kind": "DERIVED_COLD_ENGINE_EXPECTATION",
+    "projectedPaths": [
+      "/engine/control/HostConfig/Dns",
+      "/engine/fixture/HostConfig/Dns"
+    ],
+    "rawBaselineRewritten": false,
+    "source": "https://github.com/moby/moby/blob/docker-v29.1.3/daemon/container/container.go#L619-L633"
+  },
+  "coldEngineRestarts": 1,
+  "configAndMountPointsExact": true,
+  "controlContainerRawSpecExact": true,
+  "controlInitialization": {
+    "after": {
+      "componentSha256": {
+        "config": "ffdab4348d7c75615fbd6254f7440c5580272f0b663643e32ed0c45c17628c62",
+        "hostconfig": "a9082e50762768200f0d9362be49f0a437438b883f7130e2c3e201eed6855c2d",
+        "mountpoints": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "specSha256": "756562636d5d5b6569f0d4aa62c26f59c535b020eaca0958054185d9b6fe3deb"
+    },
+    "before": {
+      "componentSha256": {
+        "config": "ffdab4348d7c75615fbd6254f7440c5580272f0b663643e32ed0c45c17628c62",
+        "hostconfig": "9850c3139799b743210fb69b9c9b67d0b2802860205b524599180190e94bb379",
+        "mountpoints": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "specSha256": "abd9d79bb2eff0a55acdaa14fb375faf5341728c2e7fb25ed63146f877df782f"
+    },
+    "historicalRollbackClaim": false,
+    "initializedPaths": [
+      "/HostConfig/Dns"
+    ],
+    "kind": "SYNTHETIC_CONTROL_INITIALIZATION_BEFORE_BASELINE",
+    "originalSnapshotPreserved": true
+  },
+  "controlInitializedEmptyDns": true,
+  "dockerVersion": "29.1.3",
+  "engineStartsTotal": 2,
+  "fixtureOnly": true,
+  "fullAttachmentsExact": true,
+  "fullNetworkSnapshotExact": true,
+  "image": "busybox:1.37.0@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4",
+  "legacyNullsSeededOnlyInNewStoppedFixture": true,
+  "limitation": "Ubuntu24.04 hosted runner, official static Docker29.1.3, synthetic seeded legacy nulls; no production environment reproduced",
+  "rawAfter": {
+    "control": {
+      "componentSha256": {
+        "config": "ffdab4348d7c75615fbd6254f7440c5580272f0b663643e32ed0c45c17628c62",
+        "hostconfig": "a9082e50762768200f0d9362be49f0a437438b883f7130e2c3e201eed6855c2d",
+        "mountpoints": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "specSha256": "756562636d5d5b6569f0d4aa62c26f59c535b020eaca0958054185d9b6fe3deb"
+    },
+    "fixture": {
+      "componentSha256": {
+        "config": "d602b796acc679a4cc8306caa3ecbde1298ee185d2e6de4932e8ffefda3f0ed1",
+        "hostconfig": "b172582e21f9e357af32db06727d2db0253aabefba0e034ad75f0a769b505c49",
+        "mountpoints": "d1d9c513578811e7f8329fad5eb35ea2a478c22c1b0412ea09c269d12010ea19"
+      },
+      "specSha256": "267f313fd8e35a5edfd32a71e40e3b1c88789c56a3949a85fa23e8b1ceb6a63a"
+    }
+  },
+  "rawBefore": {
+    "control": {
+      "componentSha256": {
+        "config": "ffdab4348d7c75615fbd6254f7440c5580272f0b663643e32ed0c45c17628c62",
+        "hostconfig": "a9082e50762768200f0d9362be49f0a437438b883f7130e2c3e201eed6855c2d",
+        "mountpoints": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "specSha256": "756562636d5d5b6569f0d4aa62c26f59c535b020eaca0958054185d9b6fe3deb"
+    },
+    "fixture": {
+      "componentSha256": {
+        "config": "d602b796acc679a4cc8306caa3ecbde1298ee185d2e6de4932e8ffefda3f0ed1",
+        "hostconfig": "acf5c9adf75b082257b82dff02ffe33f4c01ce1fe78e11fd772a5971ab5fe942",
+        "mountpoints": "d1d9c513578811e7f8329fad5eb35ea2a478c22c1b0412ea09c269d12010ea19"
+      },
+      "specSha256": "07bffb68cced75f6df05a9272ee0a95bb97fc00f9c648d731473992612f8093a"
+    }
+  },
+  "scenarioContainerStarts": 1,
+  "scenarioProcess": "/bin/true",
+  "scenarioPulls": 0,
+  "setupContainerStarts": 2,
+  "setupPulls": 1,
+  "sourceHead": "ae561ff403330422bf66b6bf6cce924a7d77fe70",
+  "staticSource": "https://download.docker.com/linux/static/stable/x86_64/",
+  "status": "PASS",
+  "stop": {
+    "allSyntheticContainersStopped": true,
+    "engineMainPID": 0,
+    "engineProcesses": 0,
+    "engineSocketUnavailable": true,
+    "engineState": "inactive",
+    "recordedCgroupsEmpty": true
+  }
+}

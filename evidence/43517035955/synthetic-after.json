@@ -1,0 +1,288 @@
+{
+  "disk": {
+    "control": {
+      "componentSha256": {
+        "config": "ffdab4348d7c75615fbd6254f7440c5580272f0b663643e32ed0c45c17628c62",
+        "hostconfig": "a9082e50762768200f0d9362be49f0a437438b883f7130e2c3e201eed6855c2d",
+        "mountpoints": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "kind": "PRIVATE_FULL_DOCKER_DISK_SPEC",
+      "schema": 1,
+      "spec": {
+        "config": {
+          "AttachStderr": true,
+          "AttachStdin": false,
+          "AttachStdout": true,
+          "Cmd": null,
+          "Domainname": "",
+          "Entrypoint": [
+            "/bin/true"
+          ],
+          "Env": [
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          ],
+          "Hostname": "83b3750fc2a4",
+          "Image": "busybox:1.37.0@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4",
+          "Labels": {},
+          "OpenStdin": false,
+          "StdinOnce": false,
+          "Tty": false,
+          "User": "",
+          "Volumes": null,
+          "WorkingDir": ""
+        },
+        "hostconfig": {
+          "AutoRemove": false,
+          "Binds": null,
+          "BlkioDeviceReadBps": [],
+          "BlkioDeviceReadIOps": [],
+          "BlkioDeviceWriteBps": [],
+          "BlkioDeviceWriteIOps": [],
+          "BlkioWeight": 0,
+          "BlkioWeightDevice": [],
+          "CapAdd": null,
+          "CapDrop": [
+            "ALL"
+          ],
+          "Cgroup": "",
+          "CgroupParent": "",
+          "CgroupnsMode": "private",
+          "ConsoleSize": [
+            0,
+            0
+          ],
+          "ContainerIDFile": "",
+          "CpuCount": 0,
+          "CpuPercent": 0,
+          "CpuPeriod": 0,
+          "CpuQuota": 0,
+          "CpuRealtimePeriod": 0,
+          "CpuRealtimeRuntime": 0,
+          "CpuShares": 0,
+          "CpusetCpus": "",
+          "CpusetMems": "",
+          "DeviceCgroupRules": null,
+          "DeviceRequests": null,
+          "Devices": [],
+          "Dns": [],
+          "DnsOptions": [],
+          "DnsSearch": [],
+          "ExtraHosts": null,
+          "GroupAdd": null,
+          "IOMaximumBandwidth": 0,
+          "IOMaximumIOps": 0,
+          "IpcMode": "private",
+          "Isolation": "",
+          "Links": null,
+          "LogConfig": {
+            "Config": {},
+            "Type": "local"
+          },
+          "MaskedPaths": [
+            "/proc/acpi",
+            "/proc/asound",
+            "/proc/interrupts",
+            "/proc/kcore",
+            "/proc/keys",
+            "/proc/latency_stats",
+            "/proc/sched_debug",
+            "/proc/scsi",
+            "/proc/timer_list",
+            "/proc/timer_stats",
+            "/sys/devices/virtual/powercap",
+            "/sys/firmware"
+          ],
+          "Memory": 33554432,
+          "MemoryReservation": 0,
+          "MemorySwap": 33554432,
+          "MemorySwappiness": null,
+          "NanoCpus": 0,
+          "NetworkMode": "dns-repro-internal",
+          "OomKillDisable": null,
+          "OomScoreAdj": 200,
+          "PidMode": "",
+          "PidsLimit": 32,
+          "PortBindings": {},
+          "Privileged": false,
+          "PublishAllPorts": false,
+          "ReadonlyPaths": [
+            "/proc/bus",
+            "/proc/fs",
+            "/proc/irq",
+            "/proc/sys",
+            "/proc/sysrq-trigger"
+          ],
+          "ReadonlyRootfs": true,
+          "RestartPolicy": {
+            "MaximumRetryCount": 0,
+            "Name": "no"
+          },
+          "Runtime": "runc",
+          "SecurityOpt": [
+            "no-new-privileges"
+          ],
+          "ShmSize": 67108864,
+          "UTSMode": "",
+          "Ulimits": [],
+          "UsernsMode": "",
+          "VolumeDriver": "",
+          "VolumesFrom": null
+        },
+        "mountpoints": {}
+      },
+      "specSha256": "756562636d5d5b6569f0d4aa62c26f59c535b020eaca0958054185d9b6fe3deb"
+    },
+    "fixture": {
+      "componentSha256": {
+        "config": "d602b796acc679a4cc8306caa3ecbde1298ee185d2e6de4932e8ffefda3f0ed1",
+        "hostconfig": "b172582e21f9e357af32db06727d2db0253aabefba0e034ad75f0a769b505c49",
+        "mountpoints": "d1d9c513578811e7f8329fad5eb35ea2a478c22c1b0412ea09c269d12010ea19"
+      },
+      "kind": "PRIVATE_FULL_DOCKER_DISK_SPEC",
+      "schema": 1,
+      "spec": {
+        "config": {
+          "AttachStderr": true,
+          "AttachStdin": false,
+          "AttachStdout": true,
+          "Cmd": null,
+          "Domainname": "",
+          "Entrypoint": [
+            "/bin/true"
+          ],
+          "Env": [
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          ],
+          "Hostname": "41bfee8f9acf",
+          "Image": "busybox:1.37.0@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4",
+          "Labels": {},
+          "OpenStdin": false,
+          "StdinOnce": false,
+          "Tty": false,
+          "User": "",
+          "Volumes": null,
+          "WorkingDir": ""
+        },
+        "hostconfig": {
+          "AutoRemove": false,
+          "Binds": [
+            "/var/lib/docker-dns-repro/bind-fixture:/fixture:ro"
+          ],
+          "BlkioDeviceReadBps": [],
+          "BlkioDeviceReadIOps": [],
+          "BlkioDeviceWriteBps": [],
+          "BlkioDeviceWriteIOps": [],
+          "BlkioWeight": 0,
+          "BlkioWeightDevice": [],
+          "CapAdd": null,
+          "CapDrop": [
+            "ALL"
+          ],
+          "Cgroup": "",
+          "CgroupParent": "",
+          "CgroupnsMode": "private",
+          "ConsoleSize": [
+            0,
+            0
+          ],
+          "ContainerIDFile": "",
+          "CpuCount": 0,
+          "CpuPercent": 0,
+          "CpuPeriod": 0,
+          "CpuQuota": 0,
+          "CpuRealtimePeriod": 0,
+          "CpuRealtimeRuntime": 0,
+          "CpuShares": 0,
+          "CpusetCpus": "",
+          "CpusetMems": "",
+          "DeviceCgroupRules": null,
+          "DeviceRequests": null,
+          "Devices": [],
+          "Dns": [],
+          "DnsOptions": [],
+          "DnsSearch": [],
+          "ExtraHosts": null,
+          "GroupAdd": null,
+          "IOMaximumBandwidth": 0,
+          "IOMaximumIOps": 0,
+          "IpcMode": "private",
+          "Isolation": "",
+          "Links": null,
+          "LogConfig": {
+            "Config": {},
+            "Type": "local"
+          },
+          "MaskedPaths": [
+            "/proc/acpi",
+            "/proc/asound",
+            "/proc/interrupts",
+            "/proc/kcore",
+            "/proc/keys",
+            "/proc/latency_stats",
+            "/proc/sched_debug",
+            "/proc/scsi",
+            "/proc/timer_list",
+            "/proc/timer_stats",
+            "/sys/devices/virtual/powercap",
+            "/sys/firmware"
+          ],
+          "Memory": 33554432,
+          "MemoryReservation": 0,
+          "MemorySwap": 33554432,
+          "MemorySwappiness": null,
+          "NanoCpus": 0,
+          "NetworkMode": "dns-repro-internal",
+          "OomKillDisable": null,
+          "OomScoreAdj": 200,
+          "PidMode": "",
+          "PidsLimit": 32,
+          "PortBindings": {},
+          "Privileged": false,
+          "PublishAllPorts": false,
+          "ReadonlyPaths": [
+            "/proc/bus",
+            "/proc/fs",
+            "/proc/irq",
+            "/proc/sys",
+            "/proc/sysrq-trigger"
+          ],
+          "ReadonlyRootfs": true,
+          "RestartPolicy": {
+            "MaximumRetryCount": 0,
+            "Name": "no"
+          },
+          "Runtime": "runc",
+          "SecurityOpt": [
+            "no-new-privileges"
+          ],
+          "ShmSize": 67108864,
+          "UTSMode": "",
+          "Ulimits": [],
+          "UsernsMode": "",
+          "VolumeDriver": "",
+          "VolumesFrom": null
+        },
+        "mountpoints": {
+          "/fixture": {
+            "Destination": "/fixture",
+            "Driver": "",
+            "Name": "",
+            "Propagation": "rprivate",
+            "RW": false,
+            "Relabel": "ro",
+            "SkipMountpointCreation": false,
+            "Source": "/var/lib/docker-dns-repro/bind-fixture",
+            "Spec": {
+              "ReadOnly": true,
+              "Source": "/var/lib/docker-dns-repro/bind-fixture",
+              "Target": "/fixture",
+              "Type": "bind"
+            },
+            "Type": "bind"
+          }
+        }
+      },
+      "specSha256": "267f313fd8e35a5edfd32a71e40e3b1c88789c56a3949a85fa23e8b1ceb6a63a"
+    }
+  }
+}

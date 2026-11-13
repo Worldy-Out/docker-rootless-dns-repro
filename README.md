@@ -60,3 +60,25 @@ setup is designed exclusively for a disposable GitHub-hosted Linux runner.
 A successful result proves this synthetic Engine behavior on Ubuntu 24.04. It
 does not establish any application's authorization, data recovery, deployment,
 or compatibility with other OS packaging. Failed attempts remain in Actions.
+
+## Verified native run
+
+[Run 43517035955](https://github.com/Worldy-Out/docker-rootless-dns-repro/actions/runs/43517035955),
+source `ae561ff403330422bf66b6bf6cce924a7d77fe70`: **PASS**.
+The 27 regression tests passed; native Docker reproduced exactly the three
+fixture DNS transitions. Control raw spec, other fixture fields, complete
+attachments and network snapshot matched. Engine shutdown and cleanup passed.
+
+Full synthetic snapshots and the [receipt](evidence/43517035955/result.json)
+are retained in `evidence/43517035955/`; `SHA256SUMS` verifies their bytes. The
+control's explicit-empty initialization and the fixture's legacy-null seed are
+disclosed setup operations before the accepted disk baseline, not historical
+rollback evidence.
+
+Three earlier diagnostic failures remain in Actions:
+[43515041327](https://github.com/Worldy-Out/docker-rootless-dns-repro/actions/runs/43515041327),
+[43515566257](https://github.com/Worldy-Out/docker-rootless-dns-repro/actions/runs/43515566257),
+[43516266514](https://github.com/Worldy-Out/docker-rootless-dns-repro/actions/runs/43516266514).
+Each confirmed safe cleanup. They led to complete readback diagnostics, an
+explicit derived cold-Engine expectation, and corrected synthetic control setup;
+the strict disk-audit module was not broadened.
