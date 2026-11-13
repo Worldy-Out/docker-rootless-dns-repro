@@ -1,0 +1,12 @@
+{
+  "engine": "29.1.3",
+  "architecture": "linux/amd64",
+  "officialArchiveBase": "https://download.docker.com/linux/static/stable/x86_64/",
+  "archives": {
+    "docker-29.1.3.tgz": "c019c608ba2bb009dd673f3230e4d743f36a78d36166c6c2444c05d0aa9ff0d9",
+    "docker-rootless-extras-29.1.3.tgz": "32dc3dd0d8b512ccf30a7efe84d360b5ade65ac4fec92a2a5ad0fe791da6ab0d"
+  },
+  "fixtureImage": "busybox:1.37.0@sha256:66a6306db78bf2dbf3487f293aa8d6990d8e506fdffab9cc43fe422becf886e4",
+  "auditModuleSha256": "565ea4e55e25c7db8b3e3ad902886b38a68d19423aec0bd20f1cc33fa6f73df4",
+  "provenance": "Docker archive SHA256 computed from official HTTPS artifacts; BusyBox manifest digest verified against official Docker registry response body. Not a publisher-signature claim."
+}

@@ -1,0 +1,46 @@
+name: Docker 29.1.3 rootless DNS persistence reproduction
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: docker-dns-repro
+  cancel-in-progress: false
+jobs:
+  reproduce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: {persist-credentials: false}
+      - name: Verify source and audit regression
+        run: |
+          sha256sum --check SHA256SUMS
+          python3 -B -m unittest -v test_disk_metadata test_native_repro
+      - name: Install disposable runner prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends uidmap slirp4netns fuse-overlayfs dbus-user-session apparmor-utils strace iproute2
+      - name: Reproduce cold-load persistence on native rootless Docker
+        env:
+          REVIEW_HEAD_SHA: ${{ github.sha }}
+        run: |
+          sudo env CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted REVIEW_HEAD_SHA="$REVIEW_HEAD_SHA" OUT_DIR="$GITHUB_WORKSPACE/results" python3 -B native_repro.py
+      - name: Publish synthetic result to logs only
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          import hashlib,json,os
+          from pathlib import Path
+          p=Path('results/result.json')
+          if not p.exists():
+              print('NO_NATIVE_RECEIPT')
+          else:
+              raw=p.read_bytes();value=json.loads(raw)
+              print('BEGIN_SYNTHETIC_RECEIPT')
+              print(json.dumps(value,sort_keys=True))
+              print('END_SYNTHETIC_RECEIPT')
+              print('RECEIPT_SHA256='+hashlib.sha256(raw).hexdigest())
+              with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+                  out.write('Native result: '+str(value.get('status'))+'\n\nSHA256: `'+hashlib.sha256(raw).hexdigest()+'`\n')
+          PYCODE
