@@ -33,7 +33,9 @@ substitute for the native result.
 Use **Actions → Docker 29.1.3 rootless DNS persistence reproduction → Run workflow**.
 The workflow is manual-only, uses a standard `ubuntu-24.04` runner and has a
 15-minute job limit. No cache or artifact-upload actions are used; a small
-synthetic receipt is written to the job log and summary.
+synthetic receipt is written to the job log and summary. Complete synthetic
+before/after snapshots and their hashes are retained in the log for independent
+verification after the runner is disposed.
 
 The harness refuses non-hosted/non-CI environments and existing fixture paths
 or accounts. It installs a pinned standalone Docker into a dedicated path and

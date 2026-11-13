@@ -130,6 +130,44 @@ def protected(row):
         'Mounts': mounts, 'NetworkSettings': copy.deepcopy(row['NetworkSettings']['Networks'])}
 
 
+def diff_paths(before, after, path=''):
+    """Diagnostic JSON pointers only; this does not alter comparison semantics."""
+    if before == after:
+        return []
+    if isinstance(before, dict) and isinstance(after, dict):
+        paths = []
+        for key in sorted(set(before) | set(after)):
+            child = path + '/' + str(key).replace('~', '~0').replace('/', '~1')
+            if key not in before or key not in after:
+                paths.append(child)
+            else:
+                paths.extend(diff_paths(before[key], after[key], child))
+        return paths
+    if isinstance(before, list) and isinstance(after, list):
+        paths = []
+        for index in range(max(len(before), len(after))):
+            child = path + '/' + str(index)
+            if index >= len(before) or index >= len(after):
+                paths.append(child)
+            else:
+                paths.extend(diff_paths(before[index], after[index], child))
+        return paths
+    return [path or '/']
+
+
+def capture_readback(out, phase, ids, network, before_engine, before_network):
+    raw = {name: inspect(cid) for name, cid in ids.items()}
+    current = {'engine': {name: protected(row) for name, row in raw.items()},
+               'network': network_snapshot(network)}
+    expected = {'engine': before_engine, 'network': before_network}
+    paths = diff_paths(expected, current)
+    write(out / ('synthetic-' + phase + '-readback.json'),
+          {'expected': expected, 'current': current, 'rawEngine': raw, 'diffPaths': paths}, 0o644)
+    STATE['comparison'] = {'phase': phase, 'diffPaths': paths[:128],
+                           'diffCount': len(paths), 'truncated': len(paths) > 128}
+    return raw, current, '; '.join(paths[:12])
+
+
 def inspect(cid):
     return json.loads(docker('inspect', cid).stdout)[0]
 
@@ -275,18 +313,20 @@ def scenario(out):
     write(out / 'synthetic-before.json', {'disk': before_disk, 'engine': before_engine, 'network': before_network}, 0o644)
     STATE['stage'] = 'cold_engine_reload'
     start_engine()
-    for name, cid in ids.items():
-        require(protected(inspect(cid)) == before_engine[name], 'Cold reload changed protected spec or full attachments')
-    require(network_snapshot(network) == before_network, 'Cold reload changed full network snapshot')
+    _, cold, paths = capture_readback(out, 'cold', ids, network, before_engine, before_network)
+    for name in ids:
+        require(cold['engine'][name] == before_engine[name], 'Cold reload changed protected spec or full attachments: ' + paths)
+    require(cold['network'] == before_network, 'Cold reload changed full network snapshot: ' + paths)
     STATE['stage'] = 'single_fixture_checkpoint'
     docker('start', ids['fixture'])
     remember_groups()
     require(docker('wait', ids['fixture']).stdout.strip() == '0', 'Checkpoint /bin/true failed')
-    for name, cid in ids.items():
-        current = inspect(cid)
+    raw_checkpoint, checkpoint, paths = capture_readback(out, 'checkpoint', ids, network, before_engine, before_network)
+    for name in ids:
+        current = raw_checkpoint[name]
         require(not any(current['State'].get(key) for key in ['Running', 'Paused', 'Restarting', 'Pid']), 'Checkpoint container not stopped')
-        require(protected(current) == before_engine[name], 'Checkpoint changed protected spec or full attachments')
-    require(network_snapshot(network) == before_network, 'Checkpoint changed full network snapshot')
+        require(checkpoint['engine'][name] == before_engine[name], 'Checkpoint changed protected spec or full attachments: ' + paths)
+    require(checkpoint['network'] == before_network, 'Checkpoint changed full network snapshot: ' + paths)
     stopped = stop_engine()
     STATE['stage'] = 'disk_audit'
     after_disk = {name: read_snapshot(HOME_DIR / 'docker/containers' / cid, UID) for name, cid in ids.items()}
@@ -473,7 +513,8 @@ def main():
     except BaseException as error:
         result.update(status='FAIL', failedStage=STATE['stage'],
                       error=type(error).__name__ + ': ' + str(error)[:500],
-                      commandFailure=copy.deepcopy(STATE.get('commandFailure')))
+                      commandFailure=copy.deepcopy(STATE.get('commandFailure')),
+                      comparison=copy.deepcopy(STATE.get('comparison')))
     finally:
         signal.alarm(0)
         try:
