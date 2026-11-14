@@ -22,6 +22,9 @@ MANAGER = 'user@16067.service'
 RUNTIME = 'user-runtime-dir@16067.service'
 SESSION = 'manager-fixture-pam.service'
 FIELDS = ['LoadState', 'ActiveState', 'SubState', 'MainPID', 'InvocationID']
+PAM_FIELDS = FIELDS + ['Type','Result','ExecMainPID','ControlPID','ExecMainCode','ExecMainStatus',
+    'ExecMainStartTimestampMonotonic','ExecMainExitTimestampMonotonic','ActiveEnterTimestampMonotonic',
+    'StateChangeTimestampMonotonic','TimeoutStartUSec','RuntimeMaxUSec','Job','Names']
 CANARY_TEXT = '''[Unit]
 Description=Disabled synthetic canary must never run
 [Service]
@@ -160,6 +163,10 @@ class Host:
         text = run(['/usr/bin/systemctl', 'show', name, '--no-pager', *['--property='+x for x in FIELDS]])[1]
         return properties(text, FIELDS)
 
+    def pam_diagnostic(self):
+        text=run(['/usr/bin/systemctl','show',SESSION,'--no-pager',*['--property='+x for x in PAM_FIELDS]])[1]
+        return properties(text,PAM_FIELDS)
+
     def user(self, *args):
         self.deadline()
         return run(['/usr/sbin/runuser', '-u', NAME, '--', '/usr/bin/env', '-i', 'PATH=/usr/bin:/bin',
@@ -272,6 +279,20 @@ class PamCase:
         self.host, self.generation, self.owned_manager = host, None, None
         self.attempted = False
         self.cleanup_attempted = False
+        self.observations=[]
+        self.observations_omitted=0
+
+    def record(self,service,state):
+        diagnostic=self.host.pam_diagnostic()
+        value={'service':service,'serviceDetailed':diagnostic,'state':state,
+               'readiness':{'ownServiceActive':active(service),'managerActive':active(state['manager']),
+                            'busPresent':state['busPresent'],'hasSession':bool(state['sessions'])}}
+        at=round(time.monotonic()-self.host.started_at,3)
+        if self.observations and self.observations[-1]['observation']==value:
+            self.observations[-1]['lastObservedSeconds']=at
+        else:
+            self.observations.append({'firstObservedSeconds':at,'lastObservedSeconds':at,'observation':value})
+            if len(self.observations)>24:self.observations.pop(0);self.observations_omitted+=1
 
     def start(self):
         require(not self.attempted and self.host.unit(SESSION)['LoadState'] == 'not-found', 'Synthetic PAM service already exists')
@@ -285,6 +306,7 @@ class PamCase:
         end=time.monotonic()+10
         while time.monotonic()<end:
             service=self.host.unit(SESSION);state=self.host.snapshot()
+            self.record(service,state)
             if active(service) and active(state['manager']) and state['busPresent'] and state['sessions']:
                 self.generation=service
                 # Only the outer disposable harness owns this newly created
@@ -400,40 +422,52 @@ def cleanup_owned(host, leases, created, creation_attempted, pam=None):
     return {'status':'PASS' if not errors else 'FAIL','errors':errors}
 
 
-def native(output):
+def direct_cases(host,leases,result,source_hash):
+    first=Lease(host);leases.append(first);require(first.acquire()=='COLD_STARTED','First cold branch')
+    result['firstOnline']=first.generation;result['onlineCanary']=host.online()
+    hold_start=time.monotonic()
+    while time.monotonic()-hold_start<12:
+        require(stable_identity(host.snapshot())==stable_identity(first.generation),'Direct manager did not survive no-session observation')
+        host.offline();time.sleep(.2)
+    result['directNoSessionObservedSeconds']=round(time.monotonic()-hold_start,3)
+    result['indefiniteManagerHoldProven']=False
+    # Deliberate local failure after the real online proof, not an invented
+    # lost-ACK success. Cleanup must still own exactly this generation.
+    try:raise RuntimeError('INJECTED_AFTER_ONLINE_PROOF')
+    except RuntimeError:result['cases'].append({'case':'post-online-failure','cleanup':first.release()})
+    result['firstStopped']=host.snapshot()
+    second=Lease(host);leases.append(second);require(second.acquire()=='COLD_STARTED','Second cold branch')
+    require(first.generation['manager']['InvocationID']!=second.generation['manager']['InvocationID'],'Manager restart did not change invocation')
+    require(source_hash==host.offline(),'Static canary seal changed')
+    result['secondOnline']=second.generation
+    calls=list(host.calls);warm=Lease(host);require(warm.acquire()=='WARM_REUSED','Warm branch')
+    require(warm.release()=='PREEXISTING_MANAGER_PRESERVED' and host.calls==calls,'Warm path mutated manager')
+    result['cases'].append({'case':'warm-generation-preserved','mechanismStartStopCalls':0})
+    result['cases'].append({'case':'cold-success-cleanup','cleanup':second.release()})
+
+
+def run_phase(host,leases,result,source_hash,phase,pam):
+    require(phase in ('all','pam-only'),'Exact supported fixture phase required')
+    if phase=='all':direct_cases(host,leases,result,source_hash)
+    else:result['directCases']='NOT_RUN_IN_PAM_ONLY'
+    result['cases'].append(pam.observe());pam.cleanup()
+
+
+def native(output,phase='all'):
+    require(phase in ('all','pam-only'),'Exact supported fixture phase required')
     require(os.getuid()==0 and os.environ.get('CI')=='true' and os.environ.get('GITHUB_ACTIONS')=='true' and os.environ.get('RUNNER_ENVIRONMENT')=='github-hosted' and os.environ.get('RUN_USER_MANAGER_REPRO')=='yes', 'Disposable hosted-runner opt-in required')
     require(Path('/proc/1/comm').read_text().strip()=='systemd', 'Native systemd PID1 required')
     require(output.parent.resolve()==Path(__file__).resolve().parent and not output.exists(), 'Fresh local output directory required')
     output.mkdir(mode=0o755)
     host = Host();leases=[];created=False;creation_attempted=False;pam=None
-    result={'schema':1,'scope':'SYNTHETIC_USER_MANAGER_ONLY','status':'FAIL','nativeTargetDistributionAcceptance':False,
+    result={'schema':1,'scope':'SYNTHETIC_USER_MANAGER_ONLY' if phase=='all' else 'SYNTHETIC_PAM_SESSION_OBSERVATION_ONLY','phase':phase,'status':'FAIL','nativeTargetDistributionAcceptance':False,
             'versions':{'osRelease':Path('/etc/os-release').read_text(),'systemd':run(['/usr/bin/systemctl','--version'])[1], 'kernel':platform.release(),'machine':platform.machine()},'cases':[]}
     try:
         creation_attempted=True;create_account();created=True
         before=host.snapshot();require(not before['busPresent'],'Cold missing bus not reproduced')
         result['coldBefore']=before;source_hash=host.offline()
-        first=Lease(host);leases.append(first);require(first.acquire()=='COLD_STARTED','First cold branch')
-        result['firstOnline']=first.generation;result['onlineCanary']=host.online()
-        hold_start=time.monotonic()
-        while time.monotonic()-hold_start<12:
-            require(stable_identity(host.snapshot())==stable_identity(first.generation),'Direct manager did not survive no-session observation')
-            host.offline();time.sleep(.2)
-        result['directNoSessionObservedSeconds']=round(time.monotonic()-hold_start,3)
-        result['indefiniteManagerHoldProven']=False
-        # Deliberate local failure after the real online proof, not an invented
-        # lost-ACK success. Cleanup must still own exactly this generation.
-        try:raise RuntimeError('INJECTED_AFTER_ONLINE_PROOF')
-        except RuntimeError:result['cases'].append({'case':'post-online-failure','cleanup':first.release()})
-        result['firstStopped']=host.snapshot()
-        second=Lease(host);leases.append(second);require(second.acquire()=='COLD_STARTED','Second cold branch')
-        require(first.generation['manager']['InvocationID']!=second.generation['manager']['InvocationID'],'Manager restart did not change invocation')
-        require(source_hash==host.offline(),'Static canary seal changed')
-        result['secondOnline']=second.generation
-        calls=list(host.calls);warm=Lease(host);require(warm.acquire()=='WARM_REUSED','Warm branch')
-        require(warm.release()=='PREEXISTING_MANAGER_PRESERVED' and host.calls==calls,'Warm path mutated manager')
-        result['cases'].append({'case':'warm-generation-preserved','mechanismStartStopCalls':0})
-        result['cases'].append({'case':'cold-success-cleanup','cleanup':second.release()})
-        pam=PamCase(host);result['cases'].append(pam.observe());pam.cleanup();pam=None
+        pam=PamCase(host);run_phase(host,leases,result,source_hash,phase,pam)
+        result['pamObservations']=pam.observations;result['pamObservationsOmitted']=pam.observations_omitted;pam=None
         result['sourceSha256']=source_hash;result['after']=host.snapshot();result['calls']=host.calls;result['status']='PASS'
     except BaseException as error:
         result['error']={'type':type(error).__name__,'message':str(error)[:1000]}
@@ -442,6 +476,8 @@ def native(output):
     finally:
         host.cleaning = True
         signal.alarm(60)
+        if pam is not None:
+            result['pamObservations']=pam.observations;result['pamObservationsOmitted']=pam.observations_omitted
         result['cleanup']=cleanup_owned(host,leases,created,creation_attempted,pam)
         if result['cleanup']['status']!='PASS':result['status']='FAIL'
         result['stopObservations']=host.stop_observations
@@ -452,9 +488,9 @@ def native(output):
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--output',type=Path,required=True);args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--output',type=Path,required=True);parser.add_argument('--phase',choices=('all','pam-only'),default='all');args=parser.parse_args()
     for sig in (signal.SIGTERM,signal.SIGINT):signal.signal(sig,lambda *_:(_ for _ in ()).throw(RuntimeError('Bounded experiment interrupted')))
     signal.signal(signal.SIGALRM,lambda *_:(_ for _ in ()).throw(RuntimeError('Experiment alarm')));signal.alarm(180)
-    return 0 if native(args.output.absolute()) else 1
+    return 0 if native(args.output.absolute(),args.phase) else 1
 
 if __name__=='__main__':raise SystemExit(main())

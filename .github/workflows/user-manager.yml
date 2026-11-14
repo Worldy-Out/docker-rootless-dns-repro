@@ -1,6 +1,13 @@
 name: Synthetic systemd user manager lifecycle
 on:
   workflow_dispatch:
+    inputs:
+      phase:
+        description: Synthetic scenario selection
+        type: choice
+        required: true
+        default: all
+        options: [all, pam-only]
 permissions:
   contents: read
 concurrency:
@@ -17,9 +24,11 @@ jobs:
         run: |
           sha256sum --check USER_MANAGER_SHA256SUMS
           python3 -I -B test_user_manager_repro.py
-      - name: Exercise native cold and warm managers
+      - name: Exercise selected native phase
+        env:
+          REPRO_PHASE: ${{ inputs.phase }}
         run: |
-          sudo env CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" RUN_USER_MANAGER_REPRO=yes python3 -I -B user_manager_repro.py --output manager-results
+          sudo env CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" RUN_USER_MANAGER_REPRO=yes python3 -I -B user_manager_repro.py --output manager-results --phase "$REPRO_PHASE"
       - name: Print bounded synthetic receipt
         if: always()
         run: |

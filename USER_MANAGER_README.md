@@ -91,3 +91,28 @@ additional manager stop or automatic retry. Bounded stop observations and a
 failure snapshot are now recorded. Fake-adapter regression exercises lingering
 bus, lingering directory, inconsistent read boundaries and deadline failure.
 These corrections have not yet passed a new native run.
+
+## Accepted direct cases and isolated PAM diagnostic
+
+Run `43620948588` (source `49c0b61`) natively passed the direct cold startup,
+post-online failure cleanup, second cold startup, warm zero-mutation consumer,
+and complete second cleanup. It recorded intermediate teardown followed by
+coherent cold units and absent bus/runtime directory. Those accepted direct
+cases need not be repeated while their code is unchanged.
+
+The same run remains overall FAIL: the later PAM scenario reached its ten-second
+online deadline. The failure snapshot showed a live manager, bus and login
+session, but the transient system service properties were not retained. Its
+precise readiness failure is therefore unproven. Unknown PAM ownership correctly
+prevented further stop or account deletion; no successful PAM cleanup is claimed.
+
+Use the separate manual workflow input `phase: pam-only` for the next diagnostic.
+It creates a fresh synthetic account and executes no direct manager start cases.
+The receipt explicitly labels this limited scope and `directCases: NOT_RUN_IN_PAM_ONLY`.
+The default `all` phase preserves the original sequence. The PAM phase now saves
+at most 24 changed service/manager observations, including fixed systemd service
+state, Type, MainPID/ExecMainPID, InvocationID, result, job and monotonic timestamps,
+plus the original readiness booleans. It reads no authentication log, environment
+or unrestricted journal. Readiness still requires the original active service
+and manager, bus and login session; no new service state or zero PID is accepted.
+This diagnostic change has not yet passed native execution.

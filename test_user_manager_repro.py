@@ -5,7 +5,7 @@ import importlib.util
 from pathlib import Path
 import unittest
 import time
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 spec=importlib.util.spec_from_file_location('fixture',Path(__file__).with_name('user_manager_repro.py'))
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
@@ -214,6 +214,38 @@ class Cases(unittest.TestCase):
         host=Host();host.state['coherent']=False
         with self.assertRaisesRegex(RuntimeError,'changed during read'):m.Lease(host).acquire()
         self.assertNotIn('start',host.calls)
+    def test_pam_only_phase_cannot_run_accepted_direct_cases(self):
+        host=Host();pam=MagicMock();pam.observe.return_value={'case':'synthetic-pam'};result={'cases':[]}
+        with patch.object(m,'direct_cases') as direct:
+            m.run_phase(host,[],result,'public-source-hash','pam-only',pam)
+            direct.assert_not_called()
+        self.assertEqual(result['directCases'],'NOT_RUN_IN_PAM_ONLY');pam.cleanup.assert_called_once()
+        self.assertFalse(host.calls);self.assertEqual(result['cases'],[{'case':'synthetic-pam'}])
+    def test_all_phase_retains_direct_then_pam_sequence(self):
+        order=[];pam=MagicMock();pam.observe.side_effect=lambda:order.append('pam') or {'case':'pam'}
+        with patch.object(m,'direct_cases',side_effect=lambda *_:order.append('direct')):
+            m.run_phase(Host(),[],{'cases':[]},'hash','all',pam)
+        self.assertEqual(order,['direct','pam']);pam.cleanup.assert_called_once()
+    def test_unknown_phase_has_no_action(self):
+        pam=MagicMock()
+        with patch.object(m,'direct_cases') as direct:
+            with self.assertRaisesRegex(RuntimeError,'supported fixture phase'):m.run_phase(Host(),[],{},'hash','skip-all',pam)
+            direct.assert_not_called();pam.observe.assert_not_called()
+    def test_pam_diagnostic_fixed_properties_no_auth_log_or_environment(self):
+        host=m.Host();text='\n'.join(k+'=synthetic' for k in m.PAM_FIELDS)
+        with patch.object(m,'run',return_value=(0,text,'')) as call:
+            result=host.pam_diagnostic()
+        argv=call.call_args.args[0]
+        self.assertEqual(argv[:3],['/usr/bin/systemctl','show',m.SESSION]);self.assertEqual(set(result),set(m.PAM_FIELDS))
+        self.assertNotIn('--property=Environment',argv);self.assertNotIn('journalctl',argv)
+    def test_pam_observations_bound_and_do_not_relabel_readiness(self):
+        host=Host(True);host.started_at=time.monotonic();host.pam_diagnostic=lambda:{k:'fixed' for k in m.PAM_FIELDS}
+        pam=m.PamCase(host)
+        for index in range(26):
+            service=unit();service['MainPID']=str(index);pam.record(service,host.snapshot())
+        self.assertEqual(len(pam.observations),24);self.assertEqual(pam.observations_omitted,2)
+        self.assertFalse(pam.observations[-1]['observation']['readiness']['ownServiceActive'])
+        self.assertTrue(pam.observations[-1]['observation']['readiness']['managerActive'])
     def test_duplicate_and_missing_systemd_properties_rejected(self):
         for raw in ('LoadState=loaded\nLoadState=loaded','LoadState=loaded','not-a-property'):
             with self.assertRaises(RuntimeError):m.properties(raw,m.FIELDS)
