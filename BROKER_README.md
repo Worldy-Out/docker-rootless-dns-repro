@@ -55,13 +55,31 @@ automatically removed the empty same-name group. Both failures are preserved.
 The revised fixture records a bounded fixed-stage diagnostic and accepts group
 absence only after checking both its owned name and GID. It has not yet passed a
 native run; sandbox privileges and acceptance checks have not been relaxed.
-The diagnostic iteration found `CAP_SETUID` missing from the effective set
-despite the exact requested bounding set. Its origin remains unproven. The next
-bounded diagnostic records permitted/inheritable sets, read-only securebits,
-the Python executable's file capabilities and LSM label, plus three fixed
-harmless child experiments (ordinary isolated Python, no-site Python and
-`runuser ... id -u`). It does not call `capset`, change units or grant capabilities;
-the original capability mismatch remains FAIL even if a child command succeeds.
+The diagnostic iteration found only `CAP_SETUID` missing from permitted and
+effective sets despite the exact requested bounding set. The no-site Python
+child inherited that loss and the fixed `runuser` command failed. No file
+capabilities or restrictive LSM label explained the difference. These results
+remain FAIL; diagnostics never waive the capability check.
+
+The official systemd [v255 execution path](https://github.com/systemd/systemd/blob/v255/src/core/exec-invoke.c#L4431-L4489)
+and [v259 execution path](https://github.com/systemd/systemd/blob/v259/src/core/exec-invoke.c#L5531-L5594)
+contain a conditional capability drop for an explicit user together with
+seccomp restrictions. This supports a causal hypothesis, not yet a native
+confirmation for the distribution build. A controlled variant omits only the
+redundant `User=root` line from the broker and watchdog **system** services:
+
+```sh
+sudo env GITHUB_ACTIONS=true CI=true RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" RUN_BROKER_REPRO=yes python3 -I -B broker_repro.py --implicit-system-root --output results-implicit
+```
+
+Use a fresh disposable runner per variant. The default command remains the
+explicit-user baseline. All other unit directives, including `Group=root`,
+`NoNewPrivileges`, address-family restrictions and the capability bounding set,
+are byte-identical. No ambient capabilities are added. Both variants require
+actual real/effective UID zero, the exact permitted/effective/bounding sets,
+zero ambient capabilities, and successful fixed identity-drop commands.
+The receipt records the variant, unit hashes and effective properties. The
+variant has not yet passed native execution. It changes no production service.
 
 Public source allowlist: `README.md`, `broker_repro.py`, `test_broker_repro.py`.
 No private modules are imported or copied. No IP address, private account,

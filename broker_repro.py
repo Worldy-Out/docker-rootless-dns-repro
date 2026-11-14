@@ -74,7 +74,7 @@ def run(argv, timeout=20, ok=(0,), input=None):
     return result
 
 
-def unit_files():
+def unit_files(*, explicit_root=True):
     # The paths are synthetic. The capability and sandbox directives are explicit
     # so native evidence can compare them with the effective service properties.
     common = '''[Service]
@@ -98,6 +98,12 @@ LimitNOFILE=256
 TasksMax=32
 MemoryMax=128M
 '''
+    require(type(explicit_root) is bool, 'Explicit root variant must be boolean')
+    if not explicit_root:
+        # Controlled experiment: system services default to UID 0. Keep Group,
+        # NNP, seccomp restrictions and the capability bounding set unchanged.
+        # The worker must still prove its actual real/effective UID is zero.
+        common = common.replace('\nUser=root\n', '\n', 1)
     return {
         NAME + '.socket': '''[Unit]
 Description=Synthetic bounded broker socket
@@ -178,7 +184,8 @@ def proc_security():
     values = security_snapshot()
     require(set(values) == {'NoNewPrivs', 'CapEff', 'CapBnd', 'CapAmb', 'CapPrm', 'CapInh'}, 'Security fields unavailable')
     require(values['NoNewPrivs'] == '1', 'NoNewPrivileges not effective')
-    require(int(values['CapEff'], 16) == CAP_MASK and int(values['CapBnd'], 16) == CAP_MASK
+    require(int(values['CapEff'], 16) == CAP_MASK and int(values['CapPrm'], 16) == CAP_MASK
+            and int(values['CapBnd'], 16) == CAP_MASK
             and int(values['CapAmb'], 16) == 0, 'Capabilities differ: ' + json.dumps(values, sort_keys=True))
     return values
 
@@ -221,7 +228,7 @@ def capability_diagnostic():
 def harmless_probe():
     stage = 'root-identity'
     try:
-        require(os.getuid() == 0, 'Broker not root')
+        require(os.getuid() == 0 and os.geteuid() == 0, 'Broker not root')
         stage = 'process-security'
         security = proc_security()
         stage = 'fixed-root-command'
@@ -256,7 +263,7 @@ def harmless_probe():
             try: diagnostic = capability_diagnostic()
             except Exception as issue: diagnostic = {'diagnosticErrorType': type(issue).__name__, 'detail': str(issue)[:500]}
         raise ProbeFailure(stage, error, diagnostic) from None
-    return {'rootUid': 0, 'childUid': UID, 'security': security, 'sourceReadOnly': True,
+    return {'rootUid': 0, 'rootEffectiveUid': 0, 'childUid': UID, 'security': security, 'sourceReadOnly': True,
             'declaredStatePathsWritable': True, 'fixedCommandOnly': True}
 
 
@@ -419,7 +426,8 @@ def cleanup(created):
     return result
 
 
-def native(output):
+def native(output, *, implicit_system_root=False):
+    require(type(implicit_system_root) is bool, 'Root variant must be boolean')
     require(sys.platform == 'linux' and os.getuid() == 0, 'Disposable Linux root runner only')
     require(os.environ.get('GITHUB_ACTIONS') == 'true' and os.environ.get('CI') == 'true'
             and os.environ.get('RUN_BROKER_REPRO') == 'yes'
@@ -455,7 +463,7 @@ def native(output):
         pass
     else:
         raise RuntimeError('Refuse occupied fixture GID')
-    units = unit_files()
+    units = unit_files(explicit_root=not implicit_system_root)
     for base in ['/etc/systemd/system', '/run/systemd/system', '/usr/lib/systemd/system', '/lib/systemd/system']:
         # Includes foreign drop-ins, aliases and dependency links, not just the
         # five unit filenames. The fixture never merges with existing units.
@@ -465,6 +473,8 @@ def native(output):
     os.chmod(output, 0o755)
     created = {'users': [], 'group': False, 'dirs': [], 'files': {}, 'reloaded': False, 'enabled': []}
     report = {'status': 'FAIL', 'cases': {}, 'scope': 'SYNTHETIC_AF_UNIX_SYSTEMD_ONLY'}
+    report['rootIdentityVariant'] = 'implicit-system-root' if implicit_system_root else 'explicit-User=root'
+    report['unitSha256'] = {name: hashlib.sha256(value.encode()).hexdigest() for name, value in units.items()}
     report['versions'] = {'systemd': run(['/usr/bin/systemctl', '--version']).stdout.decode().splitlines()[0],
                           'python': sys.version.split()[0], 'kernelRelease': os.uname().release}
     started = time.monotonic()
@@ -531,9 +541,7 @@ def native(output):
         stopped(NAME + '-forbidden.service')
         require(not (STATE / 'UNEXPECTED_DAEMON_START').exists(), 'Watchdog started sentinel daemon')
         report['cases']['timer_stale_no_daemon_start'] = {'status': 'PASS', 'observation': timer_result}
-        properties = run(['systemctl', 'show', NAME + '-watchdog.service', '-p', 'NoNewPrivileges', '-p', 'ProtectSystem',
-                          '-p', 'CapabilityBoundingSet', '-p', 'Restart', '-p', 'RuntimeMaxUSec', '-p', 'KillMode', '-p', 'ReadWritePaths'])
-        report['effectiveSandbox'] = properties.stdout.decode()
+        report['effectiveSandboxAfter'] = run(args).stdout.decode()
         report['status'] = 'PASS'
     except Exception as error:
         report['error'] = str(error)
@@ -556,11 +564,14 @@ if __name__ == '__main__':
     parser.add_argument('--connection', action='store_true')
     parser.add_argument('--watchdog', action='store_true')
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--implicit-system-root', action='store_true',
+                        help='Native CI experiment: omit only redundant User=root from system service units')
     args = parser.parse_args()
+    require(not args.implicit_system_root or not (args.connection or args.watchdog), 'Root variant is native-only')
     if args.connection:
         connection()
     elif args.watchdog:
         watchdog()
     else:
         require(args.output is not None, 'Output required')
-        sys.exit(native(args.output.resolve()))
+        sys.exit(native(args.output.resolve(), implicit_system_root=args.implicit_system_root))

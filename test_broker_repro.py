@@ -60,7 +60,7 @@ class FramingTests(unittest.TestCase):
 
 class SandboxContractTests(unittest.TestCase):
     def test_probe_failure_retains_fixed_stage_and_bounded_diagnostic(self):
-        with patch.object(fixture.os, 'getuid', return_value=0), \
+        with patch.object(fixture.os, 'getuid', return_value=0), patch.object(fixture.os, 'geteuid', return_value=0), \
                 patch.object(fixture, 'proc_security', side_effect=RuntimeError('fixed capability diagnostic')), \
                 patch.object(fixture, 'capability_diagnostic', return_value={'before': {'CapEff': 'missing'}}):
             with self.assertRaises(fixture.ProbeFailure) as caught:fixture.harmless_probe()
@@ -69,6 +69,32 @@ class SandboxContractTests(unittest.TestCase):
         self.assertEqual(str(caught.exception), 'fixed capability diagnostic')
         self.assertEqual(caught.exception.diagnostic, {'before': {'CapEff': 'missing'}})
         self.assertEqual(len(str(fixture.ProbeFailure('fixed-root-command', RuntimeError('x'*900)))), 800)
+
+    def test_implicit_root_variant_changes_only_user_directive(self):
+        explicit, implicit = fixture.unit_files(), fixture.unit_files(explicit_root=False)
+        self.assertEqual(explicit, fixture.unit_files(explicit_root=True))
+        self.assertEqual(set(explicit), set(implicit))
+        changed = []
+        for name in explicit:
+            if explicit[name] != implicit[name]:
+                changed.append(name)
+                self.assertEqual(explicit[name].count('\nUser=root\n'), 1)
+                self.assertEqual(implicit[name], explicit[name].replace('\nUser=root\n', '\n', 1))
+                self.assertIn('\nGroup=root\n', implicit[name])
+            else:
+                self.assertNotIn('\nUser=root\n', implicit[name])
+            self.assertNotIn('AmbientCapabilities=', implicit[name])
+        self.assertEqual(sorted(changed), ['broker-fixture-watchdog.service', 'broker-fixture@.service'])
+        with self.assertRaises(RuntimeError):fixture.unit_files(explicit_root='false')
+
+    def test_root_defaults_are_verified_not_assumed(self):
+        for uid, euid in [(0, 1000), (1000, 0), (1000, 1000)]:
+            with self.subTest(uid=uid, euid=euid), patch.object(fixture.os, 'getuid', return_value=uid), \
+                    patch.object(fixture.os, 'geteuid', return_value=euid), patch.object(fixture, 'proc_security') as security, \
+                    patch.object(fixture, 'run') as command:
+                with self.assertRaises(fixture.ProbeFailure) as caught:fixture.harmless_probe()
+                self.assertEqual(caught.exception.stage, 'root-identity')
+                security.assert_not_called(); command.assert_not_called()
 
     def test_units_keep_exact_bounded_privilege_pattern(self):
         rows = fixture.unit_files()
@@ -91,6 +117,8 @@ class SandboxContractTests(unittest.TestCase):
             self.assertEqual(fixture.proc_security()['NoNewPrivs'], '1')
         for text in [good.replace('NoNewPrivs:\t1', 'NoNewPrivs:\t0'),
                      good.replace('CapAmb:\t0', 'CapAmb:\t1'),
+                     good.replace('CapPrm:\t%016x' % fixture.CAP_MASK, 'CapPrm:\t%016x' % (fixture.CAP_MASK | 1)),
+                     good.replace('CapEff:\t%016x' % fixture.CAP_MASK, 'CapEff:\t%016x' % (fixture.CAP_MASK & ~(1 << 7))),
                      good.replace('%016x' % fixture.CAP_MASK, '%016x' % (fixture.CAP_MASK | 1)),
                      good.replace('CapBnd:', 'Foreign:')]:
             with self.subTest(text=text), patch.object(Path, 'read_text', return_value=text), self.assertRaises(RuntimeError):

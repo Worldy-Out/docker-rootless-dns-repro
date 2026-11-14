@@ -19,7 +19,7 @@ jobs:
           python3 -I -B test_broker_repro.py
       - name: Exercise native systemd socket and sandbox
         run: |
-          sudo env GITHUB_ACTIONS=true CI=true RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" RUN_BROKER_REPRO=yes python3 -I -B broker_repro.py --output broker-results
+          sudo env GITHUB_ACTIONS=true CI=true RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" RUN_BROKER_REPRO=yes python3 -I -B broker_repro.py --implicit-system-root --output broker-results
       - name: Print bounded synthetic receipt
         if: always()
         run: |
