@@ -1,0 +1,51 @@
+name: Docker 29.1.3 create-time OOM default reproduction
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: docker-candidate-default-repro
+  cancel-in-progress: false
+jobs:
+  reproduce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: {persist-credentials: false}
+      - name: Verify source and audit regression
+        run: |
+          sha256sum --check CANDIDATE_DEFAULT_SHA256SUMS
+          python3 -B -m unittest -v test_candidate_default_repro
+      - name: Install disposable runner prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends uidmap slirp4netns fuse-overlayfs dbus-user-session apparmor-utils strace iproute2
+      - name: Verify create-time defaults and exact stopped attachments
+        env:
+          REVIEW_HEAD_SHA: ${{ github.sha }}
+        run: |
+          sudo env CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted REVIEW_HEAD_SHA="$REVIEW_HEAD_SHA" OUT_DIR="$GITHUB_WORKSPACE/results" python3 -B candidate_default_repro.py
+      - name: Publish synthetic result to logs only
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          import hashlib,json,os
+          from pathlib import Path
+          evidence={}
+          for name in ['synthetic-source.json','synthetic-case-null.json','synthetic-case-false.json','result.json']:
+              p=Path('results')/name
+              if p.exists():
+                  raw=p.read_bytes()
+                  assert len(raw)<1000000,'Unexpected synthetic evidence size'
+                  evidence[name]={'sha256':hashlib.sha256(raw).hexdigest(),'value':json.loads(raw)}
+          print('BEGIN_SYNTHETIC_EVIDENCE')
+          print(json.dumps(evidence,sort_keys=True,indent=2))
+          print('END_SYNTHETIC_EVIDENCE')
+          if 'result.json' in evidence:
+              receipt=evidence['result.json']
+              with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+                  out.write('Native result: '+str(receipt['value'].get('status'))+'\n\nSHA256: `'+receipt['sha256']+'`\n')
+          else:
+              print('NO_NATIVE_RECEIPT')
+          PYCODE
