@@ -28,8 +28,9 @@ CAP_MASK = sum(1 << bit for bit in CAPABILITIES)
 
 
 class ProbeFailure(RuntimeError):
-    def __init__(self, stage, error):
+    def __init__(self, stage, error, diagnostic=None):
         self.stage = stage
+        self.diagnostic = diagnostic
         # All probe inputs/commands/error messages are fixed fixture literals;
         # caller-provided bytes are never interpolated into diagnostic messages.
         self.error_type = type(error).__name__
@@ -164,17 +165,57 @@ def read_frame(peer):
         # One request is accepted only after EOF; no ignored trailing bytes.
 
 
-def proc_security():
+def security_snapshot():
     values = {}
     for line in Path('/proc/self/status').read_text().splitlines():
         key, _, value = line.partition(':')
-        if key in ['NoNewPrivs', 'CapEff', 'CapBnd', 'CapAmb']:
+        if key in ['NoNewPrivs', 'CapEff', 'CapBnd', 'CapAmb', 'CapPrm', 'CapInh']:
             values[key] = value.strip()
-    require(set(values) == {'NoNewPrivs', 'CapEff', 'CapBnd', 'CapAmb'}, 'Security fields unavailable')
+    return values
+
+
+def proc_security():
+    values = security_snapshot()
+    require(set(values) == {'NoNewPrivs', 'CapEff', 'CapBnd', 'CapAmb', 'CapPrm', 'CapInh'}, 'Security fields unavailable')
     require(values['NoNewPrivs'] == '1', 'NoNewPrivileges not effective')
     require(int(values['CapEff'], 16) == CAP_MASK and int(values['CapBnd'], 16) == CAP_MASK
             and int(values['CapAmb'], 16) == 0, 'Capabilities differ: ' + json.dumps(values, sort_keys=True))
     return values
+
+
+def capability_diagnostic():
+    """Fixed read-only context and harmless UID-drop experiments. No capset,
+    setcap, unit changes or privilege expansion; this cannot change a FAIL to PASS.
+    """
+    import ctypes
+    import errno
+    result = {'before': security_snapshot(), 'resuid': list(os.getresuid()), 'resgid': list(os.getresgid())}
+    libc = ctypes.CDLL(None, use_errno=True)
+    securebits = libc.prctl(27, 0, 0, 0, 0)  # PR_GET_SECUREBITS only.
+    result['securebits'] = {'value': securebits, 'errno': ctypes.get_errno() if securebits == -1 else 0}
+    try: result['lsmLabel'] = Path('/proc/self/attr/current').read_text().strip()[:200]
+    except OSError as error: result['lsmLabelError'] = error.errno
+    executable = Path(sys.executable).resolve()
+    info = executable.stat()
+    result['python'] = {'path': str(executable), 'uid': info.st_uid, 'gid': info.st_gid, 'mode': oct(stat.S_IMODE(info.st_mode))}
+    try: result['python']['fileCapabilityHex'] = os.getxattr(executable, 'security.capability').hex()
+    except OSError as error:
+        result['python']['fileCapabilityReadErrno'] = error.errno
+        result['python']['fileCapabilityAbsent'] = error.errno == errno.ENODATA
+    code = "import os,json;print(json.dumps({'uid':os.getuid(),'caps':{k:v.strip() for k,v in [r.split(':',1) for r in open('/proc/self/status') if r.startswith(('Cap','NoNewPrivs:'))]}}))"
+    cases = [('python-isolated', ['/usr/bin/python3', '-I', '-B', '-c', code]),
+             ('python-no-site', ['/usr/bin/python3', '-I', '-B', '-S', '-c', code]),
+             ('fixed-runuser-drop', ['/usr/sbin/runuser', '-u', NAME, '--', '/usr/bin/id', '-u'])]
+    result['experiments'] = {}
+    for label, argv in cases:
+        try:
+            row = run(argv, timeout=8, ok=tuple(range(256)))
+            result['experiments'][label] = {'exit': row.returncode, 'stdout': row.stdout.decode(errors='replace')[:1000],
+                                            'stderr': row.stderr.decode(errors='replace')[:500]}
+        except Exception as error:
+            result['experiments'][label] = {'errorType': type(error).__name__, 'detail': str(error)[:500]}
+    result['after'] = security_snapshot()
+    return result
 
 
 def harmless_probe():
@@ -210,7 +251,11 @@ def harmless_probe():
                     os.close(fd)
                     path.unlink()
     except Exception as error:
-        raise ProbeFailure(stage, error) from None
+        diagnostic = None
+        if stage == 'process-security':
+            try: diagnostic = capability_diagnostic()
+            except Exception as issue: diagnostic = {'diagnosticErrorType': type(issue).__name__, 'detail': str(issue)[:500]}
+        raise ProbeFailure(stage, error, diagnostic) from None
     return {'rootUid': 0, 'childUid': UID, 'security': security, 'sourceReadOnly': True,
             'declaredStatePathsWritable': True, 'fixedCommandOnly': True}
 
@@ -230,6 +275,7 @@ def connection():
                         'stage': error.stage if isinstance(error, ProbeFailure) else stage}
             if isinstance(error, ProbeFailure):
                 response['diagnostic'] = {'errorType': error.error_type, 'fixedProbeDetail': str(error)}
+                if error.diagnostic is not None: response['diagnostic']['capabilityContext'] = error.diagnostic
         try:
             peer.sendall(json.dumps(response, sort_keys=True).encode() + b'\n')
         except OSError:
@@ -252,7 +298,7 @@ def watchdog():
 
 
 CLIENT = '''import json,socket,sys,time
-s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);s.settimeout(8);s.connect(sys.argv[1])
+s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);s.settimeout(35);s.connect(sys.argv[1])
 s.sendall(bytes.fromhex(sys.argv[2]))
 if sys.argv[3]=='stall':time.sleep(4)
 else:s.shutdown(socket.SHUT_WR)
@@ -262,7 +308,7 @@ while True:
  except ConnectionResetError:break
  if not c:break
  b+=c
- if len(b)>4096:raise RuntimeError('oversized reply')
+ if len(b)>8192:raise RuntimeError('oversized reply')
 s.close();print(b.decode(),end='')
 '''
 
@@ -271,7 +317,7 @@ def client(user, data, mode='eof'):
     command = ['/usr/bin/python3', '-I', '-B', '-c', CLIENT, str(SOCK), data.hex(), mode]
     if user:
         command = ['/usr/sbin/runuser', '-u', user, '--'] + command
-    result = run(command, timeout=12)
+    result = run(command, timeout=40)
     return json.loads(result.stdout)
 
 
@@ -419,6 +465,8 @@ def native(output):
     os.chmod(output, 0o755)
     created = {'users': [], 'group': False, 'dirs': [], 'files': {}, 'reloaded': False, 'enabled': []}
     report = {'status': 'FAIL', 'cases': {}, 'scope': 'SYNTHETIC_AF_UNIX_SYSTEMD_ONLY'}
+    report['versions'] = {'systemd': run(['/usr/bin/systemctl', '--version']).stdout.decode().splitlines()[0],
+                          'python': sys.version.split()[0], 'kernelRelease': os.uname().release}
     started = time.monotonic()
     def deadline(signum, frame):
         raise RuntimeError('Fixture deadline exceeded')
@@ -450,8 +498,11 @@ def native(output):
         row = owned_stat(SOCK, 0o660)
         require(stat.S_ISSOCK(row.st_mode) and row.st_gid == UID, 'Socket permissions differ')
         report['socket'] = {'uid': row.st_uid, 'gid': row.st_gid, 'mode': oct(stat.S_IMODE(row.st_mode)), 'activation': 'Accept=yes'}
-        report['effectiveSandbox'] = run(['systemctl', 'show', NAME + '-watchdog.service', '-p', 'NoNewPrivileges', '-p', 'ProtectSystem',
-                                         '-p', 'CapabilityBoundingSet', '-p', 'Restart', '-p', 'RuntimeMaxUSec', '-p', 'KillMode', '-p', 'ReadWritePaths']).stdout.decode()
+        selected = ['NoNewPrivileges', 'ProtectSystem', 'CapabilityBoundingSet', 'AmbientCapabilities', 'SecureBits',
+                    'User', 'Group', 'PrivateUsers', 'RestrictSUIDSGID', 'Restart', 'RuntimeMaxUSec', 'KillMode', 'ReadWritePaths']
+        args = ['systemctl', 'show', NAME + '-watchdog.service']
+        for key in selected: args += ['-p', key]
+        report['effectiveSandbox'] = run(args).stdout.decode()
         positive = client(NAME, b'{"op":"probe"}\n')
         report['initialProbeResponse'] = positive
         require(positive.get('status') == 'PASS', 'Positive broker request failed')

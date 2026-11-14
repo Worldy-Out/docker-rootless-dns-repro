@@ -55,6 +55,13 @@ automatically removed the empty same-name group. Both failures are preserved.
 The revised fixture records a bounded fixed-stage diagnostic and accepts group
 absence only after checking both its owned name and GID. It has not yet passed a
 native run; sandbox privileges and acceptance checks have not been relaxed.
+The diagnostic iteration found `CAP_SETUID` missing from the effective set
+despite the exact requested bounding set. Its origin remains unproven. The next
+bounded diagnostic records permitted/inheritable sets, read-only securebits,
+the Python executable's file capabilities and LSM label, plus three fixed
+harmless child experiments (ordinary isolated Python, no-site Python and
+`runuser ... id -u`). It does not call `capset`, change units or grant capabilities;
+the original capability mismatch remains FAIL even if a child command succeeds.
 
 Public source allowlist: `README.md`, `broker_repro.py`, `test_broker_repro.py`.
 No private modules are imported or copied. No IP address, private account,

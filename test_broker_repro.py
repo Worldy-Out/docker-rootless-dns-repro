@@ -61,11 +61,13 @@ class FramingTests(unittest.TestCase):
 class SandboxContractTests(unittest.TestCase):
     def test_probe_failure_retains_fixed_stage_and_bounded_diagnostic(self):
         with patch.object(fixture.os, 'getuid', return_value=0), \
-                patch.object(fixture, 'proc_security', side_effect=RuntimeError('fixed capability diagnostic')):
+                patch.object(fixture, 'proc_security', side_effect=RuntimeError('fixed capability diagnostic')), \
+                patch.object(fixture, 'capability_diagnostic', return_value={'before': {'CapEff': 'missing'}}):
             with self.assertRaises(fixture.ProbeFailure) as caught:fixture.harmless_probe()
         self.assertEqual(caught.exception.stage, 'process-security')
         self.assertEqual(caught.exception.error_type, 'RuntimeError')
         self.assertEqual(str(caught.exception), 'fixed capability diagnostic')
+        self.assertEqual(caught.exception.diagnostic, {'before': {'CapEff': 'missing'}})
         self.assertEqual(len(str(fixture.ProbeFailure('fixed-root-command', RuntimeError('x'*900)))), 800)
 
     def test_units_keep_exact_bounded_privilege_pattern(self):
@@ -84,7 +86,7 @@ class SandboxContractTests(unittest.TestCase):
             self.assertIn(line + '\n', rows['broker-fixture.socket'])
 
     def test_effective_capabilities_need_exact_bits_and_no_new_privileges(self):
-        good = 'NoNewPrivs:\t1\nCapEff:\t%016x\nCapBnd:\t%016x\nCapAmb:\t0\n' % (fixture.CAP_MASK, fixture.CAP_MASK)
+        good = 'NoNewPrivs:\t1\nCapEff:\t%016x\nCapBnd:\t%016x\nCapAmb:\t0\nCapPrm:\t%016x\nCapInh:\t0\n' % (fixture.CAP_MASK, fixture.CAP_MASK, fixture.CAP_MASK)
         with patch.object(Path, 'read_text', return_value=good):
             self.assertEqual(fixture.proc_security()['NoNewPrivs'], '1')
         for text in [good.replace('NoNewPrivs:\t1', 'NoNewPrivs:\t0'),
