@@ -1,0 +1,41 @@
+name: Synthetic kernel TCP lease containment
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: synthetic-kernel-tcp-lease
+  cancel-in-progress: false
+jobs:
+  reproduce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: {persist-credentials: false}
+      - name: Verify synthetic source and failure tests
+        run: |
+          sha256sum --check GATE_SHA256SUMS
+          python3 -B -m unittest -v test_nft_lease_repro
+      - name: Install disposable Linux prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends iproute2 nftables
+      - name: Exercise real kernel timeout and rollback
+        run: |
+          sudo env CI=true GITHUB_ACTIONS=true RUN_NFT_LEASE_REPRO=yes python3 -B nft_lease_repro.py --output gate-results
+      - name: Print bounded synthetic evidence
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          import hashlib,json
+          from pathlib import Path
+          evidence={}
+          for p in sorted(Path('gate-results').rglob('*.json')):
+              data=p.read_bytes()
+              assert len(data)<150000
+              evidence[str(p)]={'sha256':hashlib.sha256(data).hexdigest(),'value':json.loads(data)}
+          print('BEGIN_SYNTHETIC_GATE_EVIDENCE')
+          print(json.dumps(evidence,sort_keys=True,indent=2))
+          print('END_SYNTHETIC_GATE_EVIDENCE')
+          PYCODE
