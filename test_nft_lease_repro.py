@@ -64,18 +64,41 @@ class MeasurementTests(unittest.TestCase):
 class KernelContractTests(unittest.TestCase):
     def test_timed_element_parser_is_exact(self):
         item = {'family': 'inet', 'name': 'allowed', 'table': fixture.TABLE,
-                'elem': [{'elem': {'val': fixture.CLIENT, 'timeout': 4000, 'expires': 3900}}]}
+                'flags': ['timeout'], 'type': 'ipv4_addr', 'timeout': 4,
+                'elem': [{'elem': {'val': fixture.CLIENT, 'timeout': 4, 'expires': 3}}]}
         row = {'nftables': [{'set': item}]}
         self.assertTrue(fixture.lease_present(row))
         item['elem'] = []
         self.assertFalse(fixture.lease_present(row))
 
+    def test_exact_native_109_omitted_default_element_timeout(self):
+        # Exact synthetic set/metainfo captured from the initial native attempt.
+        row = {'nftables': [{'metainfo': {'json_schema_version': 1,
+                'release_name': 'Old Doc Yak #3', 'version': '1.0.9'}},
+                {'set': {'elem': [{'elem': {'expires': 3, 'val': '192.0.2.1'}}],
+                'family': 'inet', 'flags': ['timeout'], 'handle': 3, 'name': 'allowed',
+                'table': 'timed_gate', 'timeout': 4, 'type': 'ipv4_addr'}}]}
+        self.assertTrue(fixture.lease_present(row))
+        row['nftables'][1]['set']['elem'][0]['elem']['expires'] = 0
+        # Rounded remaining time zero is not proof of absence; wait until the
+        # kernel omits the element, then measure actual denied traffic.
+        self.assertTrue(fixture.lease_present(row))
+
+    def test_wrong_default_and_ambiguous_units_never_accepted(self):
+        item = {'family': 'inet', 'name': 'allowed', 'table': fixture.TABLE,
+                'flags': ['timeout'], 'type': 'ipv4_addr', 'timeout': 4,
+                'elem': [{'elem': {'val': fixture.CLIENT, 'expires': 3}}]}
+        for changes in ({'timeout': 4000}, {'timeout': True}, {'flags': []}, {'type': 'ipv6_addr'}):
+            with self.subTest(changes=changes), self.assertRaises(RuntimeError):
+                fixture.lease_present({'nftables': [{'set': {**item, **changes}}]})
+
     def test_timed_element_drift_unknown_source_and_permanent_entry_fail(self):
-        for fields in [{'val': '192.0.2.3', 'timeout': 4000, 'expires': 3000},
-                       {'val': fixture.CLIENT}, {'val': fixture.CLIENT, 'timeout': 120000, 'expires': 4000},
-                       {'val': fixture.CLIENT, 'timeout': 4000, 'expires': 4001},
+        for fields in [{'val': '192.0.2.3', 'timeout': 4, 'expires': 3},
+                       {'val': fixture.CLIENT}, {'val': fixture.CLIENT, 'timeout': 4000, 'expires': 3},
+                       {'val': fixture.CLIENT, 'timeout': 4, 'expires': 5},
                        {'val': fixture.CLIENT, 'timeout': True, 'expires': 0}]:
             row = {'nftables': [{'set': {'family': 'inet', 'name': 'allowed', 'table': fixture.TABLE,
+                                        'flags': ['timeout'], 'type': 'ipv4_addr', 'timeout': 4,
                                         'elem': [{'elem': fields}]}}]}
             with self.subTest(fields=fields), self.assertRaises(RuntimeError): fixture.lease_present(row)
 

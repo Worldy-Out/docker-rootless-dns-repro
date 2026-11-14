@@ -82,14 +82,23 @@ def lease_present(value):
     require(len(rows) == 1 and rows[0]['name'] == 'allowed' and
             rows[0]['family'] == 'inet' and rows[0]['table'] == TABLE,
             'Unexpected lease set readback')
+    # libnftables JSON encodes timeout/expires in seconds (not kernel-internal
+    # milliseconds). A per-element timeout equal to the set default is omitted.
+    # Do not infer units from magnitude or accept a permanent bare address.
+    item = rows[0]
+    require(item.get('type') == 'ipv4_addr' and item.get('flags') in (['timeout'], 'timeout') and
+            type(item.get('timeout')) is int and item['timeout'] == TTL,
+            'Unexpected set type, timeout flag or default lease')
     elements = rows[0].get('elem', [])
     require(isinstance(elements, list) and len(elements) <= 1, 'Unexpected lease elements')
     for element in elements:
         require(isinstance(element, dict) and set(element) == {'elem'}, 'Unknown timed element encoding')
         fields = element['elem']
-        require(set(fields) == {'val', 'timeout', 'expires'} and fields['val'] == CLIENT and
-                type(fields['timeout']) is int and fields['timeout'] == TTL * 1000 and
-                type(fields['expires']) is int and 0 <= fields['expires'] <= fields['timeout'],
+        require(isinstance(fields, dict) and {'val', 'expires'} <= set(fields) <= {'val', 'timeout', 'expires'},
+                'Unexpected timed element fields')
+        timeout = fields.get('timeout', item['timeout'])
+        require(fields['val'] == CLIENT and type(timeout) is int and timeout == TTL and
+                type(fields['expires']) is int and 0 <= fields['expires'] <= timeout,
                 'Unexpected lease address or timeout')
     return bool(elements)
 

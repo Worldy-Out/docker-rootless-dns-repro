@@ -34,7 +34,12 @@ lasts two seconds after a 700 ms allowance for packets already in flight.
 
 Raw `nft -j` snapshots preserve table comments and timed element `timeout` and
 `expires` fields before/after renewal and expiration. They contain synthetic data
-only. The script saves a separate cleanup result and never reports overall PASS
+only. JSON timeout values use seconds; an element inheriting the set default may
+omit its own timeout. This matches the native nftables 1.0.9 output and the
+[libnftables JSON schema shipped with 1.1.6](https://manpages.ubuntu.com/manpages/tenacious/man5/libnftables-json.5.html).
+The parser requires the exact set default and refuses millisecond heuristics,
+bare permanent entries, foreign sources, or unknown element fields.
+The script saves a separate cleanup result and never reports overall PASS
 when cleanup is unconfirmed. It deletes only its unique namespace handles after
 verifying ownership, inode and absence of remaining processes. Host firewall,
 SSH, routes and existing namespaces are not configured. Unknown resources are
@@ -43,7 +48,9 @@ preserved for inspection; no broad process kill or namespace cleanup is used.
 This is an IPv4/TCP kernel containment test, not VPN authentication, per-user
 revocation, TLS, IPv6, or a production cutoff SLA. Local Python tests exercise
 adversarial verdict and cleanup logic; only a successful native run demonstrates
-the kernel behavior. Native execution has not yet been performed for this candidate.
+the kernel behavior. The first native attempt failed in the JSON parser before
+the traffic verdict and confirmed scoped cleanup. The corrected parser is locally
+tested against that captured synthetic shape; its next native run is still pending.
 
 Public source allowlist: `README.md`, `nft_lease_repro.py`,
 `test_nft_lease_repro.py`. Generated evidence should be reviewed separately before
