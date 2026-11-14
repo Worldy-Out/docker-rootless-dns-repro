@@ -71,7 +71,20 @@ def cold(row):
 
 
 def stable_identity(row):
-    return {k: row[k] for k in ('bootId', 'manager', 'runtime', 'busInode', 'busDevice')}
+    return {k: row[k] for k in ('bootId', 'manager', 'runtime', 'busInode', 'busDevice', 'runtimeDirectoryInode', 'runtimeDirectoryDevice')}
+
+
+def closed_snapshot(row):
+    return row['coherent'] and cold(row['manager']) and cold(row['runtime']) and not row['busPresent'] and not row['runtimeDirectoryPresent'] and not row['processes'] and not row['sessions']
+
+
+def stop_ready(row, runtime=False):
+    if closed_snapshot(row):return True
+    # Return a still-active owned runtime-dir to the caller for its ONE optional
+    # stop. Cold units with a lingering bus/directory are intermediate teardown,
+    # not completion, and must only be polled within the existing deadline.
+    return (not runtime and row['coherent'] and cold(row['manager']) and not row['processes'] and not row['sessions']
+            and row['runtime']['ActiveState']=='active' and row['runtime']['SubState']=='exited')
 
 
 class Lease:
@@ -86,13 +99,15 @@ class Lease:
         require(not self.acquire_attempted, 'Lease acquisition is single-attempt')
         self.acquire_attempted = True
         before = self.host.snapshot()
+        require(before['coherent'], 'Initial observation changed during read')
         self.host.offline()
         if active(before['manager']):
             self.host.online()
-            require(stable_identity(self.host.snapshot()) == stable_identity(before), 'Warm generation changed')
+            current=self.host.snapshot()
+            require(current['coherent'] and stable_identity(current) == stable_identity(before), 'Warm generation changed')
             self.generation = before
             return 'WARM_REUSED'
-        require(cold(before['manager']) and not before['busPresent'] and cold(before['runtime']), 'Not a proven cold manager')
+        require(cold(before['manager']) and not before['busPresent'] and not before['runtimeDirectoryPresent'] and cold(before['runtime']), 'Not a proven cold manager')
         require(not before['sessions'] and not before['processes'], 'Cold account unexpectedly active')
         self.start_attempted = True
         self.host.start()
@@ -107,16 +122,17 @@ class Lease:
     def release(self):
         if not self.owned:
             require(not self.start_attempted, 'UNKNOWN_START_REQUIRES_DISPOSABLE_RUNNER_CONTAINMENT')
-            require(stable_identity(self.host.snapshot()) == stable_identity(self.generation), 'Warm manager changed')
+            current=self.host.snapshot()
+            require(current['coherent'] and stable_identity(current) == stable_identity(self.generation), 'Warm manager changed')
             self.host.online()
             return 'PREEXISTING_MANAGER_PRESERVED'
         require(not self.stop_attempted, 'Manager stop is single-attempt; unknown cleanup preserved')
         now = self.host.snapshot()
-        require(stable_identity(now) == stable_identity(self.generation), 'Owned manager identity changed')
+        require(now['coherent'] and stable_identity(now) == stable_identity(self.generation), 'Owned manager identity changed')
         require(not now['sessions'], 'Foreign session forbids manager stop')
         self.host.online()
         immediate = self.host.snapshot()
-        require(stable_identity(immediate) == stable_identity(self.generation) and not immediate['sessions'], 'Manager/session drift before stop')
+        require(immediate['coherent'] and stable_identity(immediate) == stable_identity(self.generation) and not immediate['sessions'], 'Manager/session drift before stop')
         self.stop_attempted = True
         self.host.stop_manager()
         state = self.host.wait_stopped()
@@ -125,7 +141,7 @@ class Lease:
             require(state['runtime'] == self.generation['runtime'] and not state['sessions'], 'Runtime directory ownership changed')
             self.host.stop_runtime()
             state = self.host.wait_stopped(runtime=True)
-        require(cold(state['manager']) and cold(state['runtime']) and not state['busPresent'] and not state['processes'], 'Incomplete manager cleanup')
+        require(closed_snapshot(state), 'Incomplete manager cleanup')
         self.owned = self.start_attempted = False
         return 'OWNED_MANAGER_STOPPED'
 
@@ -134,6 +150,8 @@ class Host:
     def __init__(self):
         self.calls, self.started_at = [], time.monotonic()
         self.cleaning = False
+        self.stop_observations = []
+        self.stop_observations_omitted = 0
 
     def deadline(self):
         require(time.monotonic() - self.started_at < (240 if self.cleaning else 180), 'Native experiment deadline')
@@ -148,23 +166,48 @@ class Host:
                     'HOME='+str(FIXTURE_HOME), 'XDG_RUNTIME_DIR=/run/user/'+str(UID),
                     'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/'+str(UID)+'/bus', '/usr/bin/systemctl', '--user', *args])
 
+    def resources(self):
+        directory=Path('/run/user') / str(UID)
+        try:
+            ds=directory.lstat()
+            require(stat.S_ISDIR(ds.st_mode) and ds.st_uid==UID and ds.st_gid==UID and stat.S_IMODE(ds.st_mode)==0o700, 'Unsafe runtime directory')
+        except FileNotFoundError:ds=None
+        try:
+            bs=(directory/'bus').lstat()
+            require(stat.S_ISSOCK(bs.st_mode) and bs.st_uid==UID, 'Unsafe user bus')
+        except FileNotFoundError:bs=None
+        return {'busPresent':bs is not None,'busInode':bs.st_ino if bs else None,'busDevice':bs.st_dev if bs else None,
+                'runtimeDirectoryPresent':ds is not None,'runtimeDirectoryInode':ds.st_ino if ds else None,
+                'runtimeDirectoryDevice':ds.st_dev if ds else None}
+
+    def boundaries(self):
+        return {'bootId':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+                'manager':self.unit(MANAGER),'runtime':self.unit(RUNTIME)}
+
     def snapshot(self):
         self.deadline()
-        bus = Path('/run/user') / str(UID) / 'bus'
-        try:
-            st = bus.lstat()
-            require(stat.S_ISSOCK(st.st_mode) and st.st_uid == UID, 'Unsafe user bus')
-        except FileNotFoundError: st = None
-        sessions = []
-        for line in run(['/usr/bin/loginctl', 'list-sessions', '--no-legend', '--no-pager'])[1].splitlines():
-            parts = line.split()
-            require(len(parts) >= 3, 'Session listing malformed')
-            if parts[1] == str(UID): sessions.append(parts[0])
-        code, procs, _ = run(['/usr/bin/pgrep', '-u', str(UID)], accepted=(0, 1))
-        return {'bootId':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
-                'manager':self.unit(MANAGER), 'runtime':self.unit(RUNTIME),
-                'busPresent':st is not None, 'busInode':st.st_ino if st else None, 'busDevice':st.st_dev if st else None,
-                'sessions':sessions, 'processes':[int(x) for x in procs.split()] if code == 0 else []}
+        begin=self.boundaries();resources_before=self.resources()
+        sessions=[]
+        for line in run(['/usr/bin/loginctl','list-sessions','--no-legend','--no-pager'])[1].splitlines():
+            parts=line.split();require(len(parts)>=3,'Session listing malformed')
+            if parts[1]==str(UID):sessions.append(parts[0])
+        code,procs,_=run(['/usr/bin/pgrep','-u',str(UID)],accepted=(0,1))
+        resources_after=self.resources();end=self.boundaries()
+        row={**end,**resources_after,'sessions':sessions,'processes':[int(x) for x in procs.split()] if code==0 else [],
+             'coherent':begin==end and resources_before==resources_after}
+        if not row['coherent']:
+            row['readBoundary']={'before':begin,'resourcesBefore':resources_before}
+        return row
+
+    def stop_observation(self, row, runtime):
+        value={'runtimeStopPhase':runtime,'state':row}
+        at=round(time.monotonic()-self.started_at,3)
+        if self.stop_observations and self.stop_observations[-1]['observation']==value:
+            self.stop_observations[-1]['lastObservedSeconds']=at
+        else:
+            self.stop_observations.append({'firstObservedSeconds':at,'lastObservedSeconds':at,'observation':value})
+            if len(self.stop_observations)>32:
+                self.stop_observations.pop(0);self.stop_observations_omitted+=1
 
     def offline(self):
         require(not MARKER.exists() and not MARKER.is_symlink(), 'Canary ran')
@@ -209,7 +252,7 @@ class Host:
         end = time.monotonic() + 30
         while time.monotonic() < end:
             row = self.snapshot()
-            if active(row['manager']) and row['busPresent']: return row
+            if row['coherent'] and active(row['manager']) and row['busPresent'] and row['runtimeDirectoryPresent']: return row
             time.sleep(.1)
         raise RuntimeError('User manager online deadline')
 
@@ -217,8 +260,8 @@ class Host:
         end = time.monotonic() + 30
         while time.monotonic() < end:
             row = self.snapshot()
-            runtime_stable = cold(row['runtime']) or (row['runtime']['ActiveState'] == 'active' and row['runtime']['SubState'] == 'exited')
-            if cold(row['manager']) and not row['processes'] and runtime_stable and (not runtime or cold(row['runtime'])): return row
+            self.stop_observation(row,runtime)
+            if stop_ready(row,runtime): return row
             time.sleep(.1)
         raise RuntimeError('User manager stop deadline')
 
@@ -233,7 +276,7 @@ class PamCase:
     def start(self):
         require(not self.attempted and self.host.unit(SESSION)['LoadState'] == 'not-found', 'Synthetic PAM service already exists')
         before=self.host.snapshot()
-        require(cold(before['manager']) and cold(before['runtime']) and not before['busPresent'] and not before['sessions'] and not before['processes'], 'PAM observation needs proven cold account')
+        require(closed_snapshot(before), 'PAM observation needs proven cold account')
         self.attempted = True
         run(['/usr/bin/systemd-run','--unit='+SESSION,'--no-block','--collect',
              '--property=Type=exec','--property=User='+NAME,'--property=Group='+NAME,
@@ -294,11 +337,12 @@ class PamCase:
         if self.owned_manager is not None:
             state=self.host.snapshot()
             if cold(state['manager']):
-                require(not state['sessions'] and not state['processes'],'PAM manager disappeared with unexpected work')
+                state=self.host.wait_stopped()
+                require(state['coherent'] and state['bootId']==self.owned_manager.generation['bootId'] and not state['sessions'] and not state['processes'],'PAM manager disappeared with unexpected work')
                 if not cold(state['runtime']):
                     require(state['runtime']==self.owned_manager.generation['runtime'],'PAM runtime-dir ownership changed')
                     self.host.stop_runtime();state=self.host.wait_stopped(runtime=True)
-                require(cold(state['runtime']) and not state['busPresent'],'PAM runtime cleanup incomplete')
+                require(closed_snapshot(state),'PAM runtime cleanup incomplete')
                 self.owned_manager.owned=self.owned_manager.start_attempted=False
             else:self.owned_manager.release()
 
@@ -320,7 +364,7 @@ def create_account():
 
 def remove_account(host):
     state = host.snapshot()
-    require(cold(state['manager']) and cold(state['runtime']) and not state['processes'] and not state['sessions'] and not state['busPresent'], 'Account cleanup requires confirmed cold state')
+    require(closed_snapshot(state), 'Account cleanup requires confirmed cold state')
     host.offline()
     account = pwd.getpwnam(NAME)
     require((account.pw_uid,account.pw_gid,account.pw_dir)==(UID,UID,str(FIXTURE_HOME)), 'Account ownership changed')
@@ -393,11 +437,15 @@ def native(output):
         result['sourceSha256']=source_hash;result['after']=host.snapshot();result['calls']=host.calls;result['status']='PASS'
     except BaseException as error:
         result['error']={'type':type(error).__name__,'message':str(error)[:1000]}
+        try:result['failureState']=host.snapshot()
+        except BaseException as read_error:result['failureStateReadError']=str(read_error)[:500]
     finally:
         host.cleaning = True
         signal.alarm(60)
         result['cleanup']=cleanup_owned(host,leases,created,creation_attempted,pam)
         if result['cleanup']['status']!='PASS':result['status']='FAIL'
+        result['stopObservations']=host.stop_observations
+        result['stopObservationsOmitted']=host.stop_observations_omitted
         result['elapsedSeconds']=round(time.monotonic()-host.started_at,3)
         target=output/'result.json';target.write_text(json.dumps(result,sort_keys=True,indent=2)+'\n');target.chmod(0o644)
     return result['status']=='PASS'

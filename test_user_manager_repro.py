@@ -4,6 +4,7 @@ import copy
 import importlib.util
 from pathlib import Path
 import unittest
+import time
 from unittest.mock import patch
 
 spec=importlib.util.spec_from_file_location('fixture',Path(__file__).with_name('user_manager_repro.py'))
@@ -20,7 +21,8 @@ class Host:
     def __init__(self,warm=False):
         self.state={'bootId':'synthetic-boot','manager':unit(warm),'runtime':unit(warm,runtime=True),
           'busPresent':warm,'busInode':44 if warm else None,'busDevice':1 if warm else None,
-          'sessions':[],'processes':[201] if warm else []}
+          'sessions':[],'processes':[201] if warm else [],'coherent':True,
+          'runtimeDirectoryPresent':warm,'runtimeDirectoryInode':11 if warm else None,'runtimeDirectoryDevice':1 if warm else None}
         self.calls=[];self.stale_source=False;self.canary_running=False;self.leave_runtime=False;self.unknown_start=False;self.foreign_scope=False
     def snapshot(self):return copy.deepcopy(self.state)
     def offline(self):
@@ -28,14 +30,14 @@ class Host:
     def online(self):
         self.calls.append('online');m.require(not self.canary_running,'canary ran');m.require(not self.foreign_scope,'Unexpected user scope')
     def start(self):
-        self.calls.append('start');self.state.update(manager=unit(True),runtime=unit(True,runtime=True),busPresent=True,busInode=44,busDevice=1,processes=[201])
+        self.calls.append('start');self.state.update(manager=unit(True),runtime=unit(True,runtime=True),busPresent=True,busInode=44,busDevice=1,processes=[201],runtimeDirectoryPresent=True,runtimeDirectoryInode=11,runtimeDirectoryDevice=1)
         if self.unknown_start:raise RuntimeError('UNKNOWN_ACK')
     def wait_online(self):return self.snapshot()
     def stop_manager(self):
         self.calls.append('stop');self.state['manager']=unit();self.state['processes']=[]
         if not self.leave_runtime:self.stop_runtime()
     def stop_runtime(self):
-        self.calls.append('runtime-stop');self.state.update(runtime=unit(),busPresent=False,busInode=None,busDevice=None)
+        self.calls.append('runtime-stop');self.state.update(runtime=unit(),busPresent=False,busInode=None,busDevice=None,runtimeDirectoryPresent=False,runtimeDirectoryInode=None,runtimeDirectoryDevice=None)
     def wait_stopped(self,runtime=False):return self.snapshot()
 
 
@@ -174,6 +176,44 @@ class Cases(unittest.TestCase):
             with patch.object(m,'run') as call:
                 with self.assertRaisesRegex(RuntimeError,'proven cold account'):m.PamCase(host).start()
                 call.assert_not_called()
+    def native_wait_host(self,rows):
+        host=m.Host();host.snapshot=lambda:copy.deepcopy(rows.pop(0))
+        return host
+    def test_native_stop_waits_for_bus_directory_and_coherent_read(self):
+        done=Host().snapshot();bus=copy.deepcopy(done);bus.update(busPresent=True,busInode=44,busDevice=1,runtimeDirectoryPresent=True,runtimeDirectoryInode=11,runtimeDirectoryDevice=1)
+        directory=copy.deepcopy(bus);directory.update(busPresent=False,busInode=None,busDevice=None)
+        changing=copy.deepcopy(done);changing['coherent']=False
+        rows=[bus,directory,changing,done];host=self.native_wait_host(rows)
+        with patch.object(m.time,'sleep'):
+            self.assertEqual(host.wait_stopped(),done)
+        self.assertFalse(rows);self.assertEqual(len(host.stop_observations),4);self.assertFalse(host.calls)
+    def test_native_runtime_stop_waits_for_full_absence(self):
+        pending=Host().snapshot();pending.update(runtime=unit(True,runtime=True),runtimeDirectoryPresent=True,runtimeDirectoryInode=11,runtimeDirectoryDevice=1)
+        done=Host().snapshot();rows=[pending,done];host=self.native_wait_host(rows)
+        with patch.object(m.time,'sleep'):
+            self.assertEqual(host.wait_stopped(runtime=True),done)
+        self.assertFalse(rows);self.assertFalse(host.calls)
+        self.assertTrue(m.stop_ready(pending,False));self.assertFalse(m.stop_ready(pending,True))
+    def test_native_lingering_bus_times_out_without_second_mutation(self):
+        row=Host().snapshot();row.update(busPresent=True,busInode=44,busDevice=1)
+        host=m.Host();host.snapshot=lambda:copy.deepcopy(row)
+        tick=iter(range(1000))
+        with patch.object(m.time,'monotonic',side_effect=lambda:next(tick)),patch.object(m.time,'sleep'):
+            with self.assertRaisesRegex(RuntimeError,'stop deadline'):host.wait_stopped()
+        self.assertFalse(host.calls);self.assertTrue(host.stop_observations[-1]['observation']['state']['busPresent'])
+    def test_snapshot_marks_different_boundaries_incoherent(self):
+        host=m.Host();begin={'bootId':'boot','manager':unit(True),'runtime':unit(True,runtime=True)}
+        end={'bootId':'boot','manager':unit(),'runtime':unit()}
+        alive={k:v for k,v in Host(True).snapshot().items() if k.startswith('bus') or k.startswith('runtimeDirectory')}
+        gone={k:v for k,v in Host().snapshot().items() if k.startswith('bus') or k.startswith('runtimeDirectory')}
+        with patch.object(host,'boundaries',side_effect=[begin,end]),patch.object(host,'resources',side_effect=[alive,gone]),patch.object(m,'run',side_effect=[(0,'',''),(1,'','')]):
+            result=host.snapshot()
+        self.assertFalse(result['coherent']);self.assertFalse(result['busPresent']);self.assertFalse(m.stop_ready(result))
+        self.assertEqual(result['readBoundary']['resourcesBefore'],alive)
+    def test_incoherent_initial_snapshot_cannot_start_manager(self):
+        host=Host();host.state['coherent']=False
+        with self.assertRaisesRegex(RuntimeError,'changed during read'):m.Lease(host).acquire()
+        self.assertNotIn('start',host.calls)
     def test_duplicate_and_missing_systemd_properties_rejected(self):
         for raw in ('LoadState=loaded\nLoadState=loaded','LoadState=loaded','not-a-property'):
             with self.assertRaises(RuntimeError):m.properties(raw,m.FIELDS)

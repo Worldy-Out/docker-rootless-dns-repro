@@ -71,3 +71,23 @@ and `.github/workflows/user-manager.yml`. No existing reproduction is modified.
 Review the synthetic result before publishing it. PASS requires all native
 checks plus confirmed cleanup; it says nothing about application authorization,
 Docker, VPN connectivity, database safety, or production startup.
+
+## First native result and bounded cleanup correction
+
+The first native run (workflow run `43620220396`, source `8ad29fc`) remains FAIL.
+On Ubuntu 24.04.5 / systemd 255.4 it proved cold missing bus, a new online manager,
+the disabled canary and 12.175 seconds of direct-manager observation. It then
+reported `Incomplete manager cleanup`; no second stop was issued and the account
+was preserved. The final teardown snapshot was not captured, so this does not
+prove whether the bus was genuinely still present or was read before later
+systemd state changed. No successful cleanup is inferred retrospectively.
+
+The corrected read-only wait requires coherent before/after unit and filesystem
+observations. Cold units alone are insufficient: the bus and runtime directory
+must also be absent, with no processes or sessions. Intermediate teardown is
+polled within the original 30-second deadline; the sole optional runtime-dir
+stop still requires the exact originally owned active generation. There is no
+additional manager stop or automatic retry. Bounded stop observations and a
+failure snapshot are now recorded. Fake-adapter regression exercises lingering
+bus, lingering directory, inconsistent read boundaries and deadline failure.
+These corrections have not yet passed a new native run.
