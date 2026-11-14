@@ -96,7 +96,7 @@ These corrections have not yet passed a new native run.
 
 Run `43620948588` (source `49c0b61`) natively passed the direct cold startup,
 post-online failure cleanup, second cold startup, warm zero-mutation consumer,
-and complete second cleanup. It recorded intermediate teardown followed by
+and complete second manager/runtime-directory cleanup. It recorded intermediate teardown followed by
 coherent cold units and absent bus/runtime directory. Those accepted direct
 cases need not be repeated while their code is unchanged.
 
@@ -115,4 +115,34 @@ state, Type, MainPID/ExecMainPID, InvocationID, result, job and monotonic timest
 plus the original readiness booleans. It reads no authentication log, environment
 or unrestricted journal. Readiness still requires the original active service
 and manager, bus and login session; no new service state or zero PID is accepted.
-This diagnostic change has not yet passed native execution.
+The diagnostic result is recorded below; the strict readiness criterion was not relaxed.
+
+## Optional PAM result: inconclusive post-session behavior
+
+Run `43621692444` (source `7aa9de4`, phase `pam-only`) remains **FAIL**, with
+`directCases: NOT_RUN_IN_PAM_ONLY`. Its verified result SHA256 is
+`4ac01ddcc0a157be046c5f88b86f809772a6bab5e6b4fc8bc53db80309bd54a6`.
+No accepted direct cold/warm case was repeated in this run.
+
+From 0.415 through 10.106 seconds, the manager, bus and login session were
+observed active, while the owned transient service remained
+`Type=exec`, `ActiveState=activating`, `SubState=start`, with unchanged
+InvocationID, `MainPID=ExecMainPID=2256` and pending job `1388`.
+The interim `Result=success` property does not establish completed activation:
+`ownServiceActive` remained false. The exact readiness check correctly reached
+`PAM online deadline`. No cause for the pending activation is inferred.
+
+The post-session observation phase was never reached. Therefore manager survival
+after PAM session termination remains **INCONCLUSIVE**, not PASS or evidence of
+an indefinite hold. Cleanup stayed **FAIL / UNKNOWN_PAM_START_PRESERVED**;
+unknown ownership was not converted into permission to stop or delete the
+synthetic account. Both this result and the earlier overall FAILs are retained.
+No further PAM changes or retries are planned in this fixture.
+
+The accepted direct cold-start, disabled-canary, warm zero-mutation and owned
+manager/runtime-directory cleanup evidence from run `43620948588` remains
+separate and unchanged. It is not a successful whole-fixture cleanup or a
+production installer acceptance. An independent direct-manager/explicit-linger
+implementation still needs its own real post-session-disconnect readback of
+manager generation and linger before starting workloads. Neither this optional
+PAM experiment nor the Ubuntu 24.04 runner proves that acceptance on another OS.
