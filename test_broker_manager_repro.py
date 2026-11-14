@@ -26,8 +26,11 @@ def row(case):
            'sessionBus':{'available':case=='session_only'}}
     if case in ('original','session_only'):
         value.update(status='QUERY_REJECTED',queryExecuted=True,queryExit=1,bus={'available':False,'reason':'MISSING'},
-                     exactMissingPrivateSocketError=True,queryStderrBytes=len(m.CONNECT_MISSING.encode()),
-                     queryStderrSha256=m.sha(m.CONNECT_MISSING.encode()),queryFields=[])
+                     exactMissingPrivateSocketError=case=='session_only',
+                     connectErrorCategory='PRIVILEGE_DENIED'if case=='original'else'MISSING_PRIVATE_SOCKET',
+                     queryStderrBytes=len((m.CONNECT_PRIVILEGE if case=='original'else m.CONNECT_MISSING).encode()),
+                     queryStderrSha256=m.sha((m.CONNECT_PRIVILEGE if case=='original'else m.CONNECT_MISSING).encode()),
+                     queryStderrText=m.CONNECT_PRIVILEGE if case=='original'else m.CONNECT_MISSING,queryStderrTruncated=False,queryFields=[])
     elif case=='bound':value.update(status='STOPPED_QUERY_CONFIRMED',queryExecuted=True,bus={'available':True},
                                    inertStopAttempted=True,inertStopConfirmedNeverStarted=True)
     else:value.update(status='REJECTED_BEFORE_USER_QUERY',queryExecuted=False,reason='MISSING'if case=='missing'else'FOREIGN_SOCKET')
@@ -63,7 +66,7 @@ class SandboxTests(unittest.TestCase):
     def test_exact_assertions_reject_fake_positive_negative_or_lost_isolation(self):
         for case in m.CASES:m.check_case(case,row(case))
         changes={'original':[{'queryExit':0},{'bus':{'available':True,'reason':'OBSERVED'}}],
-                 'session_only':[{'exactMissingPrivateSocketError':False},{'sessionBus':{'available':False}}],
+                 'session_only':[{'connectErrorCategory':'PRIVILEGE_DENIED'},{'sessionBus':{'available':False}}],
                  'bound':[{'socketMountReadOnly':False},{'onlySocketVisible':False},{'bus':{'available':False}},
                           {'sessionBus':{'available':True}},{'inertStopConfirmedNeverStarted':False}],
                  'missing':[{'queryExecuted':True},{'reason':'FOREIGN_SOCKET'}],
@@ -160,6 +163,17 @@ class VersionAndMechanismTests(unittest.TestCase):
                        {'stderr':m.CONNECT_MISSING.replace('No such file or directory','Permission denied')},
                        {'stderr':'Failed to connect to bus: No such file or directory\n'}):
             self.assertFalse(m.missing_error({**good,**change}))
+    def test_privilege_hint_is_a_distinct_source_defined_error_category(self):
+        reply={'exit':1,'stdout':'','stderr':m.CONNECT_PRIVILEGE}
+        self.assertEqual(m.connect_error_category(reply),'PRIVILEGE_DENIED')
+        self.assertFalse(m.missing_error(reply))
+        self.assertEqual(m.connect_error_category({**reply,'stderr':m.CONNECT_MISSING}),'MISSING_PRIVATE_SOCKET')
+        for stderr in (m.CONNECT_PRIVILEGE+'extra',m.CONNECT_PRIVILEGE.replace('--machine','--different'),
+                       m.CONNECT_PRIVILEGE.replace('Operation not permitted','Connection refused'), 'arbitrary failure\n'):
+            self.assertEqual(m.connect_error_category({**reply,'stderr':stderr}),'UNRECOGNIZED')
+        for case,wrong in (('original','MISSING_PRIVATE_SOCKET'),('session_only','PRIVILEGE_DENIED')):
+            with self.assertRaises(RuntimeError):m.check_case(case,{**row(case),'connectErrorCategory':wrong})
+
     def test_only_one_private_socket_and_no_session_env_workaround(self):
         self.assertEqual(m.sandbox('session_only')['BindReadOnlyPaths'],str(m.RUNTIME/'bus'))
         self.assertEqual(m.sandbox('bound')['BindReadOnlyPaths'],str(m.PRIVATE))

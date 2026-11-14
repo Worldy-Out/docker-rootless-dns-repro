@@ -16,8 +16,8 @@ The harness creates one dedicated account (UID/GID 16064), private fixture direc
 
 Five bounded transient root probes use identical capability, NoNewPrivileges, ProtectSystem, address-family and lifetime restrictions:
 
-1. `ProtectHome=yes`: the private socket is hidden and the fixed query must return the exact C-locale missing-file diagnostic.
-2. `ProtectHome=tmpfs` with a read-only bind of only the session `/bus`: that socket must match the host inode, while the private socket is absent and the same exact diagnostic must occur.
+1. `ProtectHome=yes`: the private socket is hidden and the fixed query must return the exact upstream C-locale privilege-denied diagnostic with its fixed advisory. Root may observe the mount as empty while the dropped UID cannot traverse it.
+2. `ProtectHome=tmpfs` with a read-only bind of only the session `/bus`: that socket must match the host inode, while the private socket is absent and the distinct exact C-locale missing-file diagnostic must occur.
 3. `ProtectHome=tmpfs` with a read-only bind of only `/run/user/16064/systemd/private`: the fixed query must succeed. The probe also submits one fixed `stop` for the already inactive surrogate and proves it remained never started.
 4. Missing private socket: reject before the user command.
 5. Foreign-owned private socket: reject before the user command.
@@ -39,3 +39,5 @@ Only these five files are publishable:
 - `.github/workflows/broker-manager-259.yml`
 
 Offline tests validate failure classification, exact version gates, socket identity, positive-query-before-stop ordering, post-stop never-started readback and cleanup latches. They are not native systemd acceptance. A native failure preserves its actual diagnostic and must not be rewritten as PASS.
+
+The first 259 native run stopped at the original-sandbox classifier: the hidden socket produced the upstream privilege-denied branch, whereas the initial fixture incorrectly required missing-file there. Cleanup succeeded; that run remains FAIL, and no candidate success is claimed from it. This revision distinguishes those two source-defined branches and records bounded synthetic stderr before asserting. Unknown text, extra lines, wrong branch or an unexpectedly successful negative query still fail. No sandbox property, fixed command or cleanup scope changed.

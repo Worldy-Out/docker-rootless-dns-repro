@@ -44,6 +44,7 @@ FIELDS=('LoadState','ActiveState','SubState','MainPID','InvocationID','ExecMainS
 CASES=('original','session_only','bound','missing','foreign')
 PRIVATE=RUNTIME/'systemd/private'
 CONNECT_MISSING='Failed to connect to user scope bus via local transport: No such file or directory\n'
+CONNECT_PRIVILEGE='Failed to connect to user scope bus via local transport: Operation not permitted (consider using --machine=<user>@.host --user to connect to bus of other user)\n'
 
 
 def need(ok,message):
@@ -206,8 +207,15 @@ def effective_sandbox(case,runner):
     return value
 
 
+def connect_error_category(reply):
+    if reply['exit']!=1 or reply['stdout']!='':return 'UNRECOGNIZED'
+    if reply['stderr']==CONNECT_MISSING:return 'MISSING_PRIVATE_SOCKET'
+    if reply['stderr']==CONNECT_PRIVILEGE:return 'PRIVILEGE_DENIED'
+    return 'UNRECOGNIZED'
+
+
 def missing_error(reply):
-    return reply['exit']==1 and reply['stdout']=='' and reply['stderr']==CONNECT_MISSING
+    return connect_error_category(reply)=='MISSING_PRIVATE_SOCKET'
 
 
 def inside(case,runner=run):
@@ -228,7 +236,8 @@ def inside(case,runner=run):
     reply=runner(user_query(),timeout=8,allowed=(0,1))
     row.update(queryExecuted=True,queryExit=reply['exit'],queryStderrSha256=sha(reply['stderr'].encode()),
                queryStderrBytes=len(reply['stderr'].encode()),queryFields=reply['stdout'].splitlines(),
-               exactMissingPrivateSocketError=missing_error(reply))
+               exactMissingPrivateSocketError=missing_error(reply),connectErrorCategory=connect_error_category(reply),
+               queryStderrText=reply['stderr'][:2048],queryStderrTruncated=len(reply['stderr'])>2048)
     row['status']='STOPPED_QUERY_CONFIRMED'if stopped_response(reply)else'QUERY_REJECTED'
     if case=='bound'and stopped_response(reply):
         row['inertStopAttempted']=True
@@ -248,10 +257,13 @@ def check_case(case,row):
          'Probe identity/home isolation differs')
     if case in ('original','session_only'):
         need(row['status']=='QUERY_REJECTED'and row['queryExecuted']is True and row['queryExit']==1 and
-             row['exactMissingPrivateSocketError']is True and row['queryStderrBytes']==len(CONNECT_MISSING.encode())and
-             row['queryStderrSha256']==sha(CONNECT_MISSING.encode())and row['queryFields']==[]and
+             row['connectErrorCategory']==('PRIVILEGE_DENIED'if case=='original'else'MISSING_PRIVATE_SOCKET')and
+             row['queryStderrBytes']==len((CONNECT_PRIVILEGE if case=='original'else CONNECT_MISSING).encode())and
+             row['queryStderrSha256']==sha((CONNECT_PRIVILEGE if case=='original'else CONNECT_MISSING).encode())and
+             row['queryStderrText']==(CONNECT_PRIVILEGE if case=='original'else CONNECT_MISSING)and
+             row['queryStderrTruncated']is False and row['queryFields']==[]and
              row['bus']['available']is False and row['bus']['reason']in('MISSING','INACCESSIBLE')and
-             row['inertStopAttempted']is False,'Missing private socket did not prove exact connect error')
+             row['inertStopAttempted']is False,'Hidden private socket did not prove its specific connect error')
         if case=='session_only':need(row['sessionBus']['available']is True,'Session-only comparison lacks session bus')
         else:need(row['sessionBus']['available']is False,'Original exposed session bus')
     elif case=='bound':
