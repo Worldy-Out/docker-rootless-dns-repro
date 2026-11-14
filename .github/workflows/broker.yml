@@ -1,0 +1,36 @@
+name: Synthetic root broker sandbox
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: synthetic-root-broker
+  cancel-in-progress: false
+jobs:
+  reproduce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: {persist-credentials: false}
+      - name: Verify isolated source and failure cases
+        run: |
+          sha256sum --check BROKER_SHA256SUMS
+          python3 -I -B test_broker_repro.py
+      - name: Exercise native systemd socket and sandbox
+        run: |
+          sudo env GITHUB_ACTIONS=true CI=true RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" RUN_BROKER_REPRO=yes python3 -I -B broker_repro.py --output broker-results
+      - name: Print bounded synthetic receipt
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          import hashlib,json
+          from pathlib import Path
+          p=Path('broker-results/result.json')
+          if p.exists():
+              data=p.read_bytes()
+              assert len(data)<100000
+              print('BEGIN_SYNTHETIC_BROKER_EVIDENCE')
+              print(json.dumps({'sha256':hashlib.sha256(data).hexdigest(),'value':json.loads(data)},sort_keys=True))
+              print('END_SYNTHETIC_BROKER_EVIDENCE')
+          PYCODE
