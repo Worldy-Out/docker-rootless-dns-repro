@@ -1,0 +1,36 @@
+name: Synthetic systemd user manager lifecycle
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: synthetic-user-manager
+  cancel-in-progress: false
+jobs:
+  reproduce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: {persist-credentials: false}
+      - name: Verify isolated source and local failure cases
+        run: |
+          sha256sum --check USER_MANAGER_SHA256SUMS
+          python3 -I -B test_user_manager_repro.py
+      - name: Exercise native cold and warm managers
+        run: |
+          sudo env CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" RUN_USER_MANAGER_REPRO=yes python3 -I -B user_manager_repro.py --output manager-results
+      - name: Print bounded synthetic receipt
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          import hashlib,json
+          from pathlib import Path
+          p=Path('manager-results/result.json')
+          if p.exists():
+              data=p.read_bytes()
+              assert len(data)<100000
+              print('BEGIN_SYNTHETIC_USER_MANAGER_EVIDENCE')
+              print(json.dumps({'sha256':hashlib.sha256(data).hexdigest(),'value':json.loads(data)},sort_keys=True))
+              print('END_SYNTHETIC_USER_MANAGER_EVIDENCE')
+          PYCODE
