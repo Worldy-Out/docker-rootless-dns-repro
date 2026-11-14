@@ -48,7 +48,13 @@ created synthetic users/group and empty directories. Unknown or changed state
 causes cleanup FAIL and preserves remaining resources. Overall PASS requires
 cleanup PASS. Results contain only synthetic identities, selected sandbox
 properties, outcomes and timing. The native execution is not performed by the
-local unit tests; the first native run is still pending.
+local unit tests. The first native run reached the correctly owned socket but
+rejected the first authorized probe; its response omitted the precise probe
+stage, so that cause remains unknown. Cleanup also failed because `userdel`
+automatically removed the empty same-name group. Both failures are preserved.
+The revised fixture records a bounded fixed-stage diagnostic and accepts group
+absence only after checking both its owned name and GID. It has not yet passed a
+native run; sandbox privileges and acceptance checks have not been relaxed.
 
 Public source allowlist: `README.md`, `broker_repro.py`, `test_broker_repro.py`.
 No private modules are imported or copied. No IP address, private account,

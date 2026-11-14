@@ -27,6 +27,15 @@ CAPABILITIES = [1, 2, 6, 7, 12, 24, 29]
 CAP_MASK = sum(1 << bit for bit in CAPABILITIES)
 
 
+class ProbeFailure(RuntimeError):
+    def __init__(self, stage, error):
+        self.stage = stage
+        # All probe inputs/commands/error messages are fixed fixture literals;
+        # caller-provided bytes are never interpolated into diagnostic messages.
+        self.error_type = type(error).__name__
+        super().__init__(str(error)[:800])
+
+
 def require(ok, message):
     if not ok:
         raise RuntimeError(message)
@@ -164,48 +173,63 @@ def proc_security():
     require(set(values) == {'NoNewPrivs', 'CapEff', 'CapBnd', 'CapAmb'}, 'Security fields unavailable')
     require(values['NoNewPrivs'] == '1', 'NoNewPrivileges not effective')
     require(int(values['CapEff'], 16) == CAP_MASK and int(values['CapBnd'], 16) == CAP_MASK
-            and int(values['CapAmb'], 16) == 0, 'Capabilities differ')
+            and int(values['CapAmb'], 16) == 0, 'Capabilities differ: ' + json.dumps(values, sort_keys=True))
     return values
 
 
 def harmless_probe():
-    require(os.getuid() == 0, 'Broker not root')
-    security = proc_security()
-    root = run(['/usr/bin/id', '-u']).stdout.strip()
-    child = run(['/usr/sbin/runuser', '-u', NAME, '--', '/usr/bin/id', '-u']).stdout.strip()
-    require(root == b'0' and child == str(UID).encode(), 'Fixed identity command failed')
-    blocked = False
+    stage = 'root-identity'
     try:
-        write_new(LIB / 'UNEXPECTED_WRITABLE_SOURCE', b'unexpected')
-    except OSError as error:
-        # EROFS proves ProtectSystem, not an ordinary DAC permission failure.
-        import errno
-        blocked = error.errno == errno.EROFS
-    require(blocked, 'ProtectSystem did not make source read-only')
-    for directory in [STATE, ETC]:
-        fd, path = None, directory / ('probe-' + str(os.getpid()))
+        require(os.getuid() == 0, 'Broker not root')
+        stage = 'process-security'
+        security = proc_security()
+        stage = 'fixed-root-command'
+        root = run(['/usr/bin/id', '-u']).stdout.strip()
+        stage = 'fixed-unprivileged-command'
+        child = run(['/usr/sbin/runuser', '-u', NAME, '--', '/usr/bin/id', '-u']).stdout.strip()
+        require(root == b'0' and child == str(UID).encode(), 'Fixed identity command failed')
+        stage = 'source-read-only'
+        blocked, observed_errno = False, None
         try:
-            fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-            os.write(fd, b'synthetic\n')
-            os.fsync(fd)
-        finally:
-            if fd is not None:
-                os.close(fd)
-                path.unlink()
+            write_new(LIB / 'UNEXPECTED_WRITABLE_SOURCE', b'unexpected')
+        except OSError as error:
+            # EROFS proves ProtectSystem, not an ordinary DAC permission failure.
+            import errno
+            observed_errno = error.errno
+            blocked = error.errno == errno.EROFS
+        require(blocked, 'ProtectSystem source write errno: ' + str(observed_errno))
+        for directory in [STATE, ETC]:
+            stage = 'declared-state-write:' + directory.name
+            fd, path = None, directory / ('probe-' + str(os.getpid()))
+            try:
+                fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                os.write(fd, b'synthetic\n')
+                os.fsync(fd)
+            finally:
+                if fd is not None:
+                    os.close(fd)
+                    path.unlink()
+    except Exception as error:
+        raise ProbeFailure(stage, error) from None
     return {'rootUid': 0, 'childUid': UID, 'security': security, 'sourceReadOnly': True,
             'declaredStatePathsWritable': True, 'fixedCommandOnly': True}
 
 
 def connection():
     with socket.socket(fileno=0) as peer:
+        stage = 'peer-credentials'
         try:
             pid, uid, gid = struct.unpack('3i', peer.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
             require(pid > 0 and uid == UID and gid == UID, 'PEER_UID_REJECTED')
+            stage = 'bounded-request-frame'
             read_frame(peer)
+            stage = 'fixed-probe'
             response = {'status': 'PASS', 'peerUid': uid, 'probe': harmless_probe()}
         except Exception as error:
-            # Error labels only. Never serialize exception values supplied by a peer.
-            response = {'status': 'REJECT', 'reason': type(error).__name__}
+            response = {'status': 'REJECT', 'reason': type(error).__name__,
+                        'stage': error.stage if isinstance(error, ProbeFailure) else stage}
+            if isinstance(error, ProbeFailure):
+                response['diagnostic'] = {'errorType': error.error_type, 'fixedProbeDetail': str(error)}
         try:
             peer.sendall(json.dumps(response, sort_keys=True).encode() + b'\n')
         except OSError:
@@ -310,8 +334,20 @@ def cleanup(created):
             require(procs.returncode == 1 and not procs.stdout and not procs.stderr, 'Fixture user still has processes')
             run(['userdel', user])
         if created['group']:
-            require(grp.getgrnam(NAME).gr_gid == UID, 'Group identity changed')
-            run(['groupdel', NAME])
+            try: group = grp.getgrnam(NAME)
+            except KeyError:
+                # userdel can remove its now-empty same-name primary group.
+                # Accept only absence of BOTH the owned name and owned GID.
+                try: grp.getgrgid(UID)
+                except KeyError: pass
+                else: raise RuntimeError('Owned GID was replaced by a foreign group')
+            else:
+                require(group.gr_gid == UID, 'Group identity changed')
+                run(['groupdel', NAME])
+                for lookup, value in [(grp.getgrnam, NAME), (grp.getgrgid, UID)]:
+                    try: lookup(value)
+                    except KeyError: pass
+                    else: raise RuntimeError('Group removal unconfirmed')
         result['usersRemoved'] = True
         for path, receipt in reversed(list(created['files'].items())):
             unlink_owned(path, receipt)
@@ -414,7 +450,10 @@ def native(output):
         row = owned_stat(SOCK, 0o660)
         require(stat.S_ISSOCK(row.st_mode) and row.st_gid == UID, 'Socket permissions differ')
         report['socket'] = {'uid': row.st_uid, 'gid': row.st_gid, 'mode': oct(stat.S_IMODE(row.st_mode)), 'activation': 'Accept=yes'}
+        report['effectiveSandbox'] = run(['systemctl', 'show', NAME + '-watchdog.service', '-p', 'NoNewPrivileges', '-p', 'ProtectSystem',
+                                         '-p', 'CapabilityBoundingSet', '-p', 'Restart', '-p', 'RuntimeMaxUSec', '-p', 'KillMode', '-p', 'ReadWritePaths']).stdout.decode()
         positive = client(NAME, b'{"op":"probe"}\n')
+        report['initialProbeResponse'] = positive
         require(positive.get('status') == 'PASS', 'Positive broker request failed')
         report['cases']['authorized_fixed_probe'] = positive
         tests = [('wrong_uid_same_group', 'broker-other', b'{"op":"probe"}\n', 'eof'),

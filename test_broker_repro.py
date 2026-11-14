@@ -59,6 +59,15 @@ class FramingTests(unittest.TestCase):
 
 
 class SandboxContractTests(unittest.TestCase):
+    def test_probe_failure_retains_fixed_stage_and_bounded_diagnostic(self):
+        with patch.object(fixture.os, 'getuid', return_value=0), \
+                patch.object(fixture, 'proc_security', side_effect=RuntimeError('fixed capability diagnostic')):
+            with self.assertRaises(fixture.ProbeFailure) as caught:fixture.harmless_probe()
+        self.assertEqual(caught.exception.stage, 'process-security')
+        self.assertEqual(caught.exception.error_type, 'RuntimeError')
+        self.assertEqual(str(caught.exception), 'fixed capability diagnostic')
+        self.assertEqual(len(str(fixture.ProbeFailure('fixed-root-command', RuntimeError('x'*900)))), 800)
+
     def test_units_keep_exact_bounded_privilege_pattern(self):
         rows = fixture.unit_files()
         service = rows['broker-fixture@.service']
@@ -112,6 +121,28 @@ class CleanupTests(unittest.TestCase):
         with patch.object(fixture, 'run') as command:
             self.assertEqual(fixture.cleanup(created)['status'], 'FAIL')
             command.assert_not_called()
+
+    def test_userdel_removed_owned_group_only_when_name_and_gid_absent(self):
+        created = self.empty();created['group'] = True
+        with patch.object(fixture.grp, 'getgrnam', side_effect=KeyError()), \
+                patch.object(fixture.grp, 'getgrgid', side_effect=KeyError()), patch.object(fixture, 'run') as command:
+            self.assertEqual(fixture.cleanup(created)['status'], 'PASS')
+            command.assert_not_called()
+
+    def test_missing_group_name_with_reused_gid_is_not_safe_absence(self):
+        created = self.empty();created['group'] = True
+        with patch.object(fixture.grp, 'getgrnam', side_effect=KeyError()), \
+                patch.object(fixture.grp, 'getgrgid', return_value=object()), patch.object(fixture, 'run') as command:
+            self.assertEqual(fixture.cleanup(created)['status'], 'FAIL')
+            command.assert_not_called()
+
+    def test_groupdel_success_requires_independent_absence_readback(self):
+        created = self.empty();created['group'] = True
+        group = unittest.mock.Mock(gr_gid=fixture.UID)
+        with patch.object(fixture.grp, 'getgrnam', return_value=group), \
+                patch.object(fixture.grp, 'getgrgid', return_value=group), patch.object(fixture, 'run') as command:
+            self.assertEqual(fixture.cleanup(created)['status'], 'FAIL')
+            command.assert_called_once_with(['groupdel', fixture.NAME])
 
     def test_changed_file_never_removed(self):
         with tempfile.TemporaryDirectory() as d:
