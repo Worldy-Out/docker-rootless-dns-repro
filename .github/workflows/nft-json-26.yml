@@ -1,0 +1,36 @@
+name: Synthetic nft JSON declaration and expression
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: synthetic-nft-json-26
+  cancel-in-progress: false
+jobs:
+  reproduce:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: {persist-credentials: false}
+      - name: Verify source and offline shape contracts
+        run: |
+          sha256sum --check NFT_JSON_SHA256SUMS
+          python3 -I -B test_nft_json_repro.py
+      - name: Exercise only ephemeral namespace JSON serialization
+        run: |
+          sudo env GITHUB_ACTIONS=true CI=true RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" RUN_NFT_JSON_REPRO=yes python3 -I -B nft_json_repro.py --output nft-json-results
+      - name: Print bounded synthetic evidence
+        if: always()
+        run: |
+          python3 - <<'PYCODE'
+          import hashlib,json
+          from pathlib import Path
+          p=Path('nft-json-results/result.json')
+          if p.exists():
+              raw=p.read_bytes()
+              assert len(raw)<262144
+              print('BEGIN_SYNTHETIC_NFT_JSON_EVIDENCE')
+              print(json.dumps({'sha256':hashlib.sha256(raw).hexdigest(),'value':json.loads(raw)},sort_keys=True))
+              print('END_SYNTHETIC_NFT_JSON_EVIDENCE')
+          PYCODE
