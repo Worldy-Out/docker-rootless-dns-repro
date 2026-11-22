@@ -44,9 +44,13 @@ def endpoints(row):
     return row['NetworkSettings']['Networks']
 
 
+def canonical(row):
+    return {**row, 'Mounts': sorted(row['Mounts'], key=lambda mount: mount['Destination'])}
+
+
 def snapshot(cids, network_ids):
     host.require(set(host.docker('ps', '-aq', '--no-trunc').stdout.split()) == set(cids), 'Unexpected container set')
-    return {'containers': {cid: host.inspect(cid) for cid in cids},
+    return {'containers': {cid: canonical(host.inspect(cid)) for cid in cids},
             'networks': {name: host.network_snapshot(name) for name in network_ids}}
 
 
@@ -116,6 +120,7 @@ def stop(cid):
 
 
 def cycle(out, label, cids, names, *, withhold_ack):
+    host.STATE['stage'] = label+'-created'
     cid = cids[-1]
     before = snapshot(cids, names)
     created = before['containers'][cid]
@@ -123,11 +128,13 @@ def cycle(out, label, cids, names, *, withhold_ack):
                  all(ep['DNSNames'] is None for ep in endpoints(created).values()), 'Candidate must be truly created')
     write_intent(out/(label+'-intent.json'), {'state': 'START_INTENT', 'cid': cid, 'startMaximum': 1})
     try:
+        host.STATE['stage'] = label+'-start'
         response = host.docker('start', cid)
         # The lab client can lose the acknowledgement after the real daemon
         # handles the request. Readback must recover the outcome without retry.
         received = None if withhold_ack else response.stdout.strip()
         host.require(received in (None, cid), 'Unexpected acknowledgement')
+        host.STATE['stage'] = label+'-running-readback'
         host.until(lambda: 'READY' in host.docker('logs', cid).stdout, 10, 'Candidate did not reach its readiness marker')
         live = snapshot(cids, names)
         verify_candidate(created, live['containers'][cid], running=True)
@@ -135,6 +142,7 @@ def cycle(out, label, cids, names, *, withhold_ack):
     finally:
         stop(cid)
     after = snapshot(cids, names)
+    host.STATE['stage'] = label+'-stopped-readback'
     verify_candidate(created, after['containers'][cid], running=False)
     prove_peers(before, after, cid, running=False)
     host.require(live['containers'][cid]['State']['StartedAt'] == after['containers'][cid]['State']['StartedAt'], 'Recovered another start')
@@ -155,6 +163,7 @@ def cycle(out, label, cids, names, *, withhold_ack):
 
 
 def compensate_fixture(out, cids, networks):
+    host.STATE['stage'] = 'stopped-topology-rollback'
     name = 'synthetic-lifecycle-temporary'
     cid = cids[0]
     before = snapshot(cids, networks)
@@ -173,7 +182,7 @@ def compensate_fixture(out, cids, networks):
         raise InterruptedError('Synthetic channel loss after attachment')
     except InterruptedError:
         host.docker('network', 'disconnect', nid, cid)
-        host.require(host.network_snapshot(nid)['Containers'] == {} and host.inspect(cid) == before['containers'][cid],
+        host.require(host.network_snapshot(nid)['Containers'] == {} and canonical(host.inspect(cid)) == before['containers'][cid],
                      'Exact original endpoint readback required before deletion')
         host.docker('network', 'rm', nid)
     after = snapshot(cids, networks)
@@ -188,9 +197,12 @@ def scenario(out):
                  'Unexpected Engine')
     host.docker('pull', '--platform=linux/amd64', host.IMAGE, timeout=180)
     image = json.loads(host.docker('image', 'inspect', host.IMAGE).stdout)[0]['Id']
+    mounts = host.HOME_DIR/'synthetic-mounts'
+    mounts.mkdir(mode=0o700)
+    os.chown(mounts, host.UID, host.UID)
     for label in ('one', 'two'):
-        fixture = host.HOME_DIR/'synthetic-mounts'/label
-        fixture.mkdir(mode=0o755, parents=True)
+        fixture = mounts/label
+        fixture.mkdir(mode=0o700)
         os.chown(fixture, host.UID, host.UID)
     networks = {}
     for name in NETWORKS:
@@ -220,7 +232,8 @@ def main():
         host.setup()
         result.update(scenario(out))
     except BaseException as exc:
-        result.update(status='FAIL', error=str(exc), errorType=type(exc).__name__)
+        result.update(status='FAIL', error=str(exc), errorType=type(exc).__name__, failedStage=host.STATE['stage'],
+                      commandFailure=host.STATE.get('commandFailure'))
     finally:
         signal.alarm(0)
         try:
