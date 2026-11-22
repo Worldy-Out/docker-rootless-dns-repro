@@ -1,0 +1,36 @@
+name: Rootless Docker 29.1.3 native candidate lifecycle
+on:
+  push:
+    branches: [codex/native-candidate-lifecycle-20261122]
+    paths: [candidate_lifecycle_repro.py, .github/workflows/candidate-lifecycle.yml]
+permissions:
+  contents: read
+jobs:
+  reproduce:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: {persist-credentials: false}
+      - name: Install disposable runner prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends uidmap slirp4netns fuse-overlayfs dbus-user-session apparmor-utils strace iproute2
+      - name: Verify candidate lifecycle, lost acknowledgement and rollback
+        env:
+          REVIEW_HEAD_SHA: ${{ github.sha }}
+        run: |
+          sudo env CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted REVIEW_HEAD_SHA="$REVIEW_HEAD_SHA" OUT_DIR="$GITHUB_WORKSPACE/results" python3 -B candidate_lifecycle_repro.py
+      - name: Publish synthetic evidence to logs
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          for path in sorted(Path('results').glob('*.json')):
+              raw = path.read_bytes()
+              assert len(raw) < 2_000_000
+              print('BEGIN_NATIVE_EVIDENCE ' + path.name + ' ' + hashlib.sha256(raw).hexdigest())
+              print(json.dumps(json.loads(raw), sort_keys=True, indent=2))
+              print('END_NATIVE_EVIDENCE')
+          PY
