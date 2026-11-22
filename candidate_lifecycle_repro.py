@@ -187,8 +187,9 @@ def compensate_fixture(out, cids, networks):
     name = 'synthetic-lifecycle-temporary'
     cid = cids[0]
     before = snapshot(cids, networks)
-    nid = host.docker('network', 'create', '--subnet=198.18.144.0/29',
-                      '--label=purpose=lifecycle-compensation', name).stdout.strip()
+    nid = api('POST', '/networks/create', {'Name': name, 'Driver': 'bridge', 'Internal': False,
+              'IPAM': {'Driver': 'default', 'Options': None, 'Config': [{'Subnet': '198.18.144.0/29'}]},
+              'Labels': {'purpose': 'lifecycle-compensation'}})['Id']
     path = '/networks/'+nid
     try:
         network_request('POST', path+'/connect', 200, {'Container': cid, 'EndpointConfig': {
@@ -229,7 +230,9 @@ def scenario(out):
         os.chown(fixture, host.UID, host.UID)
     networks = {}
     for name in NETWORKS:
-        nid = host.docker('network', 'create', '--internal', name).stdout.strip()
+        nid = api('POST', '/networks/create', {'Name': name, 'Driver': 'bridge', 'Internal': True,
+                  'IPAM': {'Driver': 'default', 'Options': None, 'Config': []}})['Id']
+        host.require(host.network_snapshot(name)['IPAM']['Options'] is None, 'Expected retained default IPAM options shape')
         networks[name] = {'NetworkID': nid, 'IPAMConfig': None, 'Links': None, 'Aliases': ['synthetic-api'],
                           'DriverOpts': None, 'GwPriority': 0}
     peers = [create(image, 'synthetic-peer-'+str(i), networks) for i in range(6)]
