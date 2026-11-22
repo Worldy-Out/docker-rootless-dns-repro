@@ -29,9 +29,9 @@ def write_intent(path, value):
 def create(image, name, network_spec):
     request = {'Image': image, 'Hostname': 'synthetic-host', 'Cmd': COMMAND,
                'HostConfig': {'NetworkMode': NETWORKS[0], 'RestartPolicy': {'Name': 'no'},
-                              'OomKillDisable': None, 'CapDrop': ['ALL'], 'ReadonlyRootfs': True,
-                              'SecurityOpt': ['no-new-privileges'], 'Memory': 32 * 1024**2,
-                              'MemorySwap': 32 * 1024**2, 'PidsLimit': 32,
+                              'OomKillDisable': None, 'OomScoreAdj': 200, 'CapDrop': ['ALL'], 'ReadonlyRootfs': True,
+                              'SecurityOpt': ['no-new-privileges'], 'Memory': 256 * 1024**2,
+                              'MemorySwap': 256 * 1024**2, 'PidsLimit': 64,
                               'Binds': [str(host.HOME_DIR/'synthetic-mounts'/label) + ':/'+label+':ro' for label in ('two', 'one')]},
                'NetworkingConfig': {'EndpointsConfig': network_spec}}
     result = api('POST', '/containers/create?name='+name, request)
@@ -63,6 +63,8 @@ def verify_candidate(created, observed, *, running):
     before.pop('NetworkSettings')
     after.pop('NetworkSettings')
     host.require(before['HostConfig']['OomKillDisable'] is False, 'Pinned Engine did not record false on create')
+    host.require(before['HostConfig']['OomScoreAdj'] == after['HostConfig']['OomScoreAdj'] == 200,
+                 'Explicit OomScoreAdj must be static, observed '+str(after['HostConfig']['OomScoreAdj']))
     before['HostConfig']['OomKillDisable'] = None
     host.require(before == after, 'Static candidate spec changed: '+', '.join(host.diff_paths(before, after)[:12]))
     previous, current = endpoints(created), endpoints(observed)
