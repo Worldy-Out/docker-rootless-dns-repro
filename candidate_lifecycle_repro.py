@@ -187,20 +187,23 @@ def compensate_fixture(out, cids, networks):
     name = 'synthetic-lifecycle-temporary'
     cid = cids[0]
     before = snapshot(cids, networks)
-    nid = api('POST', '/networks/create', {'Name': name, 'Driver': 'bridge', 'Internal': False,
-              'IPAM': {'Driver': 'default', 'Options': None, 'Config': [{'Subnet': '198.18.144.0/29'}]},
+    address = '192.168.251.2'
+    ipam = {'IPv4Address': address, 'IPv6Address': ''}
+    nid = api('POST', '/networks/create', {'Name': name, 'CheckDuplicate': True, 'Driver': 'bridge', 'Internal': False,
+              'Attachable': False, 'EnableIPv6': False, 'IPAM': {'Driver': 'default', 'Config': [{'Subnet': '192.168.251.0/29'}]},
               'Labels': {'purpose': 'lifecycle-compensation'}})['Id']
     path = '/networks/'+nid
     try:
         network_request('POST', path+'/connect', 200, {'Container': cid, 'EndpointConfig': {
-            'GwPriority': 1, 'IPAMConfig': {'IPv4Address': '198.18.144.2'}}})
+            'NetworkID': nid, 'GwPriority': 1, 'IPAMConfig': ipam}})
         attached = host.inspect(cid)
         endpoint = endpoints(attached)[name]
-        host.require(endpoint['NetworkID'] == nid and endpoint['GwPriority'] == 1 and
-                     endpoint['IPAMConfig']['IPv4Address'] == '198.18.144.2' and attached['State']['Running'] is False and
-                     endpoint['Aliases'] is None and
-                     {k: v for k, v in endpoints(attached).items() if k != name} == endpoints(before['containers'][cid]),
-                     'Unexpected temporary attachment')
+        expected = {'NetworkID': nid, 'GwPriority': 1, 'IPAMConfig': ipam, 'Aliases': None}
+        observed = {key: endpoint[key] for key in expected}
+        base = endpoints(before['containers'][cid])
+        kept = {k: v for k, v in endpoints(attached).items() if k != name}
+        host.write(out/'rollback-attached.json', {'endpoint': observed, 'expected': expected, 'otherEndpointDiff': host.diff_paths(base, kept)}, 0o644)
+        host.require(observed == expected and attached['State']['Running'] is False and kept == base, 'Unexpected temporary attachment')
         write_intent(out/'rollback-intent.json', {'phase': 'ROLLBACK', 'cid': cid, 'networkId': nid})
         # Entry through an error path, after the extra attachment exists.
         raise InterruptedError('Synthetic channel loss after attachment')
@@ -240,11 +243,12 @@ def scenario(out):
     for label, withhold in (('normal', False), ('lost-ack', True)):
         cid = create(image, 'synthetic-candidate-'+label, networks)
         cases.append(cycle(out, label, [*peers, cid], networks, withhold_ack=withhold))
+        if withhold:
+            rollback = compensate_fixture(out, [cid, *peers], networks)
         host.docker('rm', cid)
         host.require(cid not in host.docker('ps', '-aq', '--no-trunc').stdout.split(), 'Removed fixture still exists')
         host.STATE['containerIds'].remove(cid)
     host.require(set(host.docker('ps', '-aq', '--no-trunc').stdout.split()) == set(peers), 'Synthetic candidates remain')
-    rollback = compensate_fixture(out, peers, networks)
     return {'status': 'PASS', 'dockerVersion': engine['ServerVersion'], 'cases': cases, 'fixtureOnly': True,
             'retainedPeersAtEachStart': 6, 'scenarioPulls': 0, 'setupPulls': 1, 'engineStarts': 1, 'rollback': rollback}
 
