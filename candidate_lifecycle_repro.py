@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Synthetic rootless Engine 29.1.3 create/start/stop and recovery evidence."""
 import copy
+import http.client
 import json
 import os
 import signal
+import socket
 
 import native_repro as host
 from candidate_default_repro import api
@@ -46,6 +48,21 @@ def endpoints(row):
 
 def canonical(row):
     return {**row, 'Mounts': sorted(row['Mounts'], key=lambda mount: mount['Destination'])}
+
+
+def network_request(method, path, expected, body=None):
+    conn = http.client.HTTPConnection('docker', timeout=12)
+    conn.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    conn.sock.settimeout(12)
+    try:
+        conn.sock.connect(str(host.RUNTIME/'docker.sock'))
+        conn.request(method, '/v1.52'+path, None if body is None else json.dumps(body),
+                     {'Content-Type': 'application/json'})
+        result = conn.getresponse()
+        raw = result.read(1024)
+        host.require(result.status == expected and not raw.strip(), 'Unexpected network API result: '+str(result.status))
+    finally:
+        conn.close()
 
 
 def snapshot(cids, network_ids):
@@ -138,6 +155,7 @@ def cycle(out, label, cids, names, *, withhold_ack):
         host.require(received in (None, cid), 'Unexpected acknowledgement')
         host.STATE['stage'] = label+'-running-readback'
         host.until(lambda: 'READY' in host.docker('logs', cid).stdout, 10, 'Candidate did not reach its readiness marker')
+        host.remember_groups()
         live = snapshot(cids, names)
         verify_candidate(created, live['containers'][cid], running=True)
         prove_peers(before, live, cid, running=True)
@@ -169,24 +187,27 @@ def compensate_fixture(out, cids, networks):
     name = 'synthetic-lifecycle-temporary'
     cid = cids[0]
     before = snapshot(cids, networks)
-    nid = host.docker('network', 'create', '--internal', '--subnet=198.18.144.0/29',
+    nid = host.docker('network', 'create', '--subnet=198.18.144.0/29',
                       '--label=purpose=lifecycle-compensation', name).stdout.strip()
+    path = '/networks/'+nid
     try:
-        host.docker('network', 'connect', '--alias=synthetic-temporary', '--ip=198.18.144.2', nid, cid)
+        network_request('POST', path+'/connect', 200, {'Container': cid, 'EndpointConfig': {
+            'GwPriority': 1, 'IPAMConfig': {'IPv4Address': '198.18.144.2'}}})
         attached = host.inspect(cid)
         endpoint = endpoints(attached)[name]
-        host.require(endpoint['NetworkID'] == nid and endpoint['Aliases'] == ['synthetic-temporary'] and
+        host.require(endpoint['NetworkID'] == nid and endpoint['GwPriority'] == 1 and
                      endpoint['IPAMConfig']['IPv4Address'] == '198.18.144.2' and attached['State']['Running'] is False and
+                     endpoint['Aliases'] is None and
                      {k: v for k, v in endpoints(attached).items() if k != name} == endpoints(before['containers'][cid]),
                      'Unexpected temporary attachment')
         write_intent(out/'rollback-intent.json', {'phase': 'ROLLBACK', 'cid': cid, 'networkId': nid})
         # Entry through an error path, after the extra attachment exists.
         raise InterruptedError('Synthetic channel loss after attachment')
     except InterruptedError:
-        host.docker('network', 'disconnect', nid, cid)
+        network_request('POST', path+'/disconnect', 200, {'Container': cid, 'Force': False})
         host.require(host.network_snapshot(nid)['Containers'] == {} and canonical(host.inspect(cid)) == before['containers'][cid],
                      'Exact original endpoint readback required before deletion')
-        host.docker('network', 'rm', nid)
+        network_request('DELETE', path, 204)
     after = snapshot(cids, networks)
     host.require(after == before and nid not in host.docker('network', 'ls', '--no-trunc', '-q').stdout.splitlines(),
                  'Full rollback of stopped topology failed')
@@ -217,6 +238,8 @@ def scenario(out):
         cid = create(image, 'synthetic-candidate-'+label, networks)
         cases.append(cycle(out, label, [*peers, cid], networks, withhold_ack=withhold))
         host.docker('rm', cid)
+        host.require(cid not in host.docker('ps', '-aq', '--no-trunc').stdout.split(), 'Removed fixture still exists')
+        host.STATE['containerIds'].remove(cid)
     host.require(set(host.docker('ps', '-aq', '--no-trunc').stdout.split()) == set(peers), 'Synthetic candidates remain')
     rollback = compensate_fixture(out, peers, networks)
     return {'status': 'PASS', 'dockerVersion': engine['ServerVersion'], 'cases': cases, 'fixtureOnly': True,
