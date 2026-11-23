@@ -131,6 +131,13 @@ def broker_fixture():
     key = Path('/etc/uzel-standby/peer.key');key.write_bytes(secrets.token_bytes(32));key.chmod(0o600)
     for name in MODULES:
         shutil.copyfile(HERE/name,LIB/name);(LIB/name).chmod(0o644)
+    (LIB/'standby_roles.py').write_text('from native_standby_fixture import Actor, Evidence\n'
+        'from standby_service import require, serve\n'
+        'def run(data, key):\n'
+        '    require(len(key)==32, "systemd credential unavailable")\n'
+        '    evidence = Evidence()\n'
+        '    return serve(Actor(evidence), evidence, period=4)\n')
+    (LIB/'manifest.json').write_text(json.dumps({p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in LIB.iterdir()}))
     run('ip','netns','add',SERVER);run('ip','netns','add',CLIENT)
     run('ip','link','add','cienp0','netns',SERVER,'type','veth','peer','name','cienp1','netns',CLIENT)
     for namespace,ifname,ips in ((HOST,'cienp0',('11.77.0.1/24',)),(PEER,'cienp1',('11.77.0.2/24','11.77.0.3/24'))):
@@ -143,9 +150,7 @@ def broker_fixture():
     state = {'schema':1,'role':'dp-a','epoch':EPOCH,'phase':'ACTIVE','bootId':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
              'leaseRevision':0,'tableSnapshot':network.stable_table(table,POLICY),'lastControlAt':time.monotonic(),'testWindow':None}
     path=ROOT/'state.json';path.write_text(json.dumps(state));path.chmod(0o600)
-    unit = service.units(UID)[service.UNIT].replace(' -B /usr/local/lib/uzel-standby/standby_service.py',
-        ' -B -E /usr/local/lib/uzel-standby/native_standby_fixture.py service').replace(' -I -B -E ',' -B -E ')
-    (UNIT_PATH/service.UNIT).write_text(unit)
+    (UNIT_PATH/service.UNIT).write_text(service.units(UID)[service.UNIT])
     for name,body in broker.systemd_units(UID).items():
         if name.endswith('.service'):
             body = body.replace(' -I -B /usr/local/lib/uzel-ops/root_helper.py',
@@ -254,8 +259,8 @@ def kernel_cases(results):
                     child.terminate()
             results['kernelExpiry'] = {'status':'PASS','seconds':30,'noUserspaceClose':True,'newBlocked':True,'establishedBlocked':True}
             run('systemctl','start','uzel-ops-watchdog.service')
-            require(not gate_file()['testWindow']['active'] and gate_file()['testWindow']['cleanupSha256'] is None,
-                    'Watchdog falsely marked credential cleanup')
+            await_until(lambda:not gate_file()['testWindow']['active'],7,'Watchdog did not latch expired ingress closed')
+            require(gate_file()['testWindow']['cleanupSha256'] is None,'Watchdog falsely marked credential cleanup')
         finally:
             server.terminate()
 

@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import time
 
@@ -76,6 +77,8 @@ class Actor:
 
     def command(self,action,data):
         if action=='start':
+            subprocess.run(['/usr/bin/systemctl','--user','show','-p','SystemState'],check=True,timeout=5,
+                           stdout=subprocess.DEVNULL)
             self.running = True
             return {'status':'STANDBY'}
         if action=='window-open':
@@ -147,10 +150,6 @@ class Actor:
 
 
 def run():
-    if sys.argv[1]=='service':
-        os.umask(0o077)
-        evidence = Evidence()
-        return service.serve(Actor(evidence),evidence,period=4)
     root_helper.STATE = ROOT
     root_helper.Helper = KernelFixture
     root_helper.load_release = lambda:(POLICY,network)
