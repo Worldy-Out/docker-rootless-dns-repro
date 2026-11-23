@@ -54,7 +54,7 @@ class Window:
                 'Window or broker revision changed during authority readback')
         sha = digest({'window':self.current,'authority':proof,'priorRevision':prior['leaseRevision']})
         self.evidence.save('window-lease-intent',{'id':self.current['id'],'proofSha256':sha,'revision':prior['leaseRevision']})
-        self.io.renew(self.current,prior['leaseRevision'],sha)
+        self.io.renew(self.current,prior['leaseRevision'],sha,deadline_monotonic_ms=int(self.deadline*1000))
         result = self.io.gate()
         require(result['window']==self.current and result['windowActive'] and result['leaseOpen'] and
                 result['lastProofSha256']==sha and result['leaseRevision']==prior['leaseRevision']+1 and

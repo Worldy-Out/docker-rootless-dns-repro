@@ -26,7 +26,7 @@ def hex_string(value,length):
     return isinstance(value,str) and len(value)==length and all(c in '0123456789abcdef' for c in value)
 
 
-def request(action,expected_revision=None,proof_sha256=None,*,window=None,window_id=None):
+def request(action,expected_revision=None,proof_sha256=None,*,window=None,window_id=None,deadline_monotonic_ms=None):
     require(action in ['start','stop','status','heartbeat','close','renew','window_status','window_finalize'],
             'Unknown fixed broker action')
     payload={'action':action}
@@ -38,6 +38,10 @@ def request(action,expected_revision=None,proof_sha256=None,*,window=None,window
     if window is not None:
         require(action=='renew' and window_fields(window),'Exact test window required')
         payload['window']=window
+    if deadline_monotonic_ms is not None:
+        require(action=='renew' and window is not None and type(deadline_monotonic_ms) is int and
+                0<deadline_monotonic_ms<2**53,'Exact local monotonic deadline required')
+        payload['deadlineMonotonicMs']=deadline_monotonic_ms
     if action=='window_finalize':
         require(hex_string(window_id,32),'Exact cleanup window identity required')
         payload['windowId']=window_id
@@ -106,8 +110,9 @@ def validate_reply(value,action,role,epoch,expected_revision=None,*,window_id=No
     return r
 
 
-def call(action,role,epoch,expected_revision=None,proof_sha256=None,*,window=None,window_id=None):
-    data=request(action,expected_revision,proof_sha256,window=window,window_id=window_id)
+def call(action,role,epoch,expected_revision=None,proof_sha256=None,*,window=None,window_id=None,deadline_monotonic_ms=None):
+    data=request(action,expected_revision,proof_sha256,window=window,window_id=window_id,
+                 deadline_monotonic_ms=deadline_monotonic_ms)
     for p in [SOCKET.parent,*SOCKET.parent.parents]:
         s=p.lstat()
         require(stat.S_ISDIR(s.st_mode) and not p.is_symlink() and s.st_uid==0 and not s.st_mode&0o022,'Unsafe broker directory')

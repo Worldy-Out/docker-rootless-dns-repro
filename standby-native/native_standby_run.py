@@ -48,14 +48,28 @@ with socket.socket(socket.AF_UNIX) as peer:
  peer.settimeout(40);peer.connect(sys.argv[1]);peer.sendall(sys.argv[2].encode()+b"\\n");peer.shutdown(socket.SHUT_WR)
  print(peer.makefile().readline().strip())
 '''
-ECHO = '''import socket,threading
+ECHO = '''import socket,sys,threading
+clients=set()
+def outbound():
+ for command in sys.stdin:
+  written=0
+  for peer in clients.copy():
+   try:peer.sendall(command.strip().encode());written+=1
+   except OSError:pass
+  print(written,flush=True)
 def echo(peer):
+ clients.add(peer)
  with peer:
-  while data:=peer.recv(1024):peer.sendall(data)
+  try:
+   while data:=peer.recv(1024):
+    with open(sys.argv[1],"ab") as received:received.write(data+b"\\n")
+    peer.sendall(data)
+  finally:clients.discard(peer)
 with socket.socket() as service:
  service.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
  service.bind(("11.77.0.1",443));service.listen()
  print("READY",flush=True)
+ threading.Thread(target=outbound,daemon=True).start()
  while True:threading.Thread(target=echo,args=(service.accept()[0],),daemon=True).start()
 '''
 CLIENT_CODE = '''import socket,sys
@@ -67,6 +81,8 @@ with socket.socket() as peer:
  for data in sys.stdin:
   data=data.rstrip().encode()
   try:
+   if data==b"__receive__":
+    print("BYTES" if peer.recv(1024) else "EOF",flush=True);continue
    peer.sendall(data);response=peer.recv(1024)
    print("ECHO" if response==data else "WRONG",flush=True)
   except TimeoutError:print("NO_BYTES",flush=True)
@@ -94,6 +110,14 @@ def proc_client():
 def push(child, value, expected):
     child.stdin.write(value+'\n');child.stdin.flush()
     require(child.stdout.readline().strip()==expected,'Established data plane differs: '+expected)
+
+
+def assert_cutoff(server,child,phase):
+    push(child,'client-after-'+phase,'NO_BYTES')
+    require(('client-after-'+phase).encode() not in (RUN/'received').read_bytes(), 'Server received post-cutoff application bytes')
+    server.stdin.write('server-after-'+phase+'\n');server.stdin.flush()
+    require(int(server.stdout.readline())>0,'Server socket no longer established for an independent write')
+    push(child,'__receive__','NO_BYTES')
 
 
 def fresh(source='11.77.0.2', port='443'):
@@ -200,7 +224,8 @@ def kernel_cases(results):
     pid = ssh_start()
     require(rpc({'action':'window_status'},endpoint=broker.SOCKET) is None,'Same UID outside service cgroup reached broker')
     results['nativeLifecycle'] = {'status':'PASS','samePidAfterSsh':pid,'brokerDeniedSameUidOutsideCgroup':True}
-    with subprocess.Popen([*HOST,'/usr/bin/python3','-B','-u','-c',ECHO],stdout=subprocess.PIPE,text=True) as server:
+    with subprocess.Popen([*HOST,'/usr/bin/python3','-B','-u','-c',ECHO,str(RUN/'received')],
+                          stdin=subprocess.PIPE,stdout=subprocess.PIPE,text=True) as server:
         try:
             require(server.stdout.readline().strip()=='READY','Synthetic listener unavailable')
             require(fresh()==['TCP_BLOCKED'],'Closed baseline unexpectedly admits connections')
@@ -219,7 +244,7 @@ def kernel_cases(results):
                     require(deadline<first['result']['window']['endUtcMs'],'Credential revoke reserve missing')
                     command('window-close')
                     require(fresh()==['TCP_BLOCKED'],'Manual close accepted new TCP')
-                    push(child,'after-close','NO_BYTES')
+                    assert_cutoff(server,child,'close')
                 finally:
                     child.terminate()
             results['manualClose'] = {'status':'PASS','newBlocked':True,'establishedBlocked':True,'replayedAckExact':True,'secondWindowDenied':True}
@@ -238,7 +263,7 @@ def kernel_cases(results):
                     (HOME/'unknown').touch()
                     await_until(lambda:gate_file()['testWindow']['cleanupSha256'] is not None,12,'Unknown authority did not close')
                     require(fresh()==['TCP_BLOCKED'],'Unknown authority allowed new flow')
-                    push(child,'after-unknown','NO_BYTES')
+                    assert_cutoff(server,child,'unknown')
                 finally:
                     child.terminate()
             results['unknownAuthority'] = {'status':'PASS','closed':True}
@@ -258,7 +283,7 @@ def kernel_cases(results):
                     require(fresh()[:1]==['TCP_CONNECTED'],'Lease gone before testing independent kernel expiry')
                     time.sleep(32)
                     require(fresh()==['TCP_BLOCKED'],'Expired kernel lease accepted new TCP')
-                    push(child,'after-expiry','NO_BYTES')
+                    assert_cutoff(server,child,'expiry')
                     require(gate_file()['leaseRevision']==revision and gate_file()['testWindow']['active'],
                             'Userspace closed instead of kernel expiry')
                 finally:

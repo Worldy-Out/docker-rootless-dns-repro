@@ -126,8 +126,8 @@ class Actor:
         self.call('heartbeat')
         return {'time':time.monotonic_ns(),'ownedFixture':self.fixture}
 
-    def renew(self, window, revision, proof):
-        return self.call('renew',revision,proof,window=window)
+    def renew(self, window, revision, proof, *, deadline_monotonic_ms):
+        return self.call('renew',revision,proof,window=window,deadline_monotonic_ms=deadline_monotonic_ms)
 
     def close_gate(self):
         return self.call('close')

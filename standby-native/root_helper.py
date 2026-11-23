@@ -258,7 +258,7 @@ class Helper:
         self.save('ACTIVE',lastControlAt=time.monotonic())
         return {'status':'MANAGEMENT_ACTIVE_VPN_GATE_CLOSED','role':self.role}
 
-    def prepare_test_window(self,window,proof_sha):
+    def prepare_test_window(self,window,proof_sha,deadline_monotonic_ms=None):
         accept_request(isinstance(window,dict) and set(window)=={'id','readyAtUtcMs','endUtcMs','fixtureEndsUtcMs'} and
                 isinstance(window['id'],str) and re.fullmatch('[0-9a-f]{32}',window['id']) and
                 all(type(window[k]) is int for k in ('readyAtUtcMs','endUtcMs','fixtureEndsUtcMs')),
@@ -267,11 +267,17 @@ class Helper:
         monotonic=time.monotonic();now=time.time_ns()//1000000
         accept_request(ready<=now<end and all(0<window[k]-ready<=self.p['testWindowMaxSeconds']*1000
                     for k in ('endUtcMs','fixtureEndsUtcMs')),'Expired or oversized test window')
+        if 'standbyService' in self.p:
+            accept_request(type(deadline_monotonic_ms) is int and
+                           0<deadline_monotonic_ms-monotonic*1000<=self.p['testWindowMaxSeconds']*1000,
+                           'Live bound to the service monotonic deadline required')
+        else:accept_request(deadline_monotonic_ms is None,'Unexpected service deadline')
         previous=self.state.get('testWindow')
         gate=self.lease_observation()
         if previous and previous['active']:
             accept_request(previous['request']==window and gate['leaseComplete'] is True and gate['leaseOpen'] is True and
                     gate['remainingMilliseconds']>1000 and proof_sha not in previous['proofs'] and
+                    previous.get('serviceDeadlineMonotonicMs')==deadline_monotonic_ms and
                     len(previous['proofs'])<MAX_WINDOW_LEASES,
                     'Live window revision, fresh evidence or kernel lease changed')
             return {**previous,'proofs':[*previous['proofs'],proof_sha]}
@@ -279,8 +285,13 @@ class Helper:
                 previous['cleanupSha256'] is not None and window['id']!=previous['request']['id'] and
                 ready>previous['request']['readyAtUtcMs']),
                 'New operator window and an empty leased set required')
-        return {'request':window,'effectiveEndUtcMs':end,'deadlineMonotonic':monotonic+(end-now)/1000,
-                'active':True,'proofs':[proof_sha],'cleanupByMonotonic':None,'cleanupSha256':None}
+        deadline=monotonic+(end-now)/1000
+        fields={}
+        if deadline_monotonic_ms is not None:
+            deadline=min(deadline,(deadline_monotonic_ms-WINDOW_CLEANUP_RESERVE_MS)/1000)
+            fields['serviceDeadlineMonotonicMs']=deadline_monotonic_ms
+        return {'request':window,'effectiveEndUtcMs':end,'deadlineMonotonic':deadline,
+                'active':True,'proofs':[proof_sha],'cleanupByMonotonic':None,'cleanupSha256':None,**fields}
 
     def test_window_remaining(self,window):
         return min(window['deadlineMonotonic']-time.monotonic(),
@@ -290,7 +301,7 @@ class Helper:
         last=self.state.get('lastControlAt')
         return type(last) in (float,int) and 0<=time.monotonic()-last<=WINDOW_HEARTBEAT_MAX_AGE
 
-    def lease(self,enable,expected_revision=None,proof_sha=None,*,window=None):
+    def lease(self,enable,expected_revision=None,proof_sha=None,*,window=None,deadline_monotonic_ms=None):
         require(self.state and self.state['phase']=='ACTIVE' and self.state['bootId']==self.boot,'Network not active in current boot')
         self.check_host();self.verify_table();self.verify_interface()
         require(self.role=='dp-a','No CP public VPN gate')
@@ -304,7 +315,7 @@ class Helper:
         window_state={}
         if window_policy:
             if enable:accept_request(self.test_window_supervised(),'Stale operator runtime heartbeat')
-            active=self.prepare_test_window(window,proof_sha) if enable else self.state.get('testWindow')
+            active=self.prepare_test_window(window,proof_sha,deadline_monotonic_ms) if enable else self.state.get('testWindow')
             if enable:
                 accept_request(self.test_window_remaining(active)>=30+WINDOW_NFT_TIMEOUT+1,
                                'Insufficient time for another kernel lease')
@@ -529,7 +540,9 @@ def broker_request(fd,runtime_uid,*,standby=False):
                 'window_status','window_finalize'],'Unknown broker action')
         keys={'action','expectedRevision','proofSha256'} if obj['action']=='renew' else {'action'}
         if obj['action']=='window_finalize':keys.update(('windowId','proofSha256','expectedRevision'))
-        if obj['action']=='renew' and 'window' in obj:keys.add('window')
+        if obj['action']=='renew' and 'window' in obj:
+            keys.add('window')
+            if standby:keys.add('deadlineMonotonicMs')
         else:require(len(data)<=256,'Oversized legacy broker request')
         require(set(obj)==keys,'Unexpected broker fields')
         if standby:require_service_peer(peer,pid)
@@ -589,6 +602,7 @@ def main():
         try:
             if action in ['renew','close']:
                 args={'window':request['window']} if 'window' in request else {}
+                if 'deadlineMonotonicMs' in request:args['deadline_monotonic_ms']=request['deadlineMonotonicMs']
                 answer=h.lease(action=='renew',request.get('expectedRevision'),request.get('proofSha256'),**args)
             elif action=='window_finalize':
                 answer=h.window_finalize(request['windowId'],request['expectedRevision'],request['proofSha256'])
