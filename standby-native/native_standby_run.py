@@ -292,12 +292,20 @@ def docker_integrity():
     before_data = hashlib.sha256(data.read_bytes()).hexdigest()
     cid = docker.docker('create','--network','synthetic-data','--network-alias','db-fixture','--restart','no',
         '-v',str(data)+':/synthetic-db.sqlite:ro',docker.IMAGE,'sh','-c','test -s /synthetic-db.sqlite').stdout.strip()
-    before = docker.inspect(cid)['NetworkSettings']['Networks']
     docker.STATE['containerIds'].append(cid)
+    # The retained fixture already completed its first start. Docker fills
+    # DNSNames on that first start, so freeze the entire primed stopped map.
+    docker.docker('start','-a',cid)
+    baseline = docker.inspect(cid)
+    require(not baseline['State']['Running'] and baseline['State']['ExitCode']==0,'Fixture did not prime cleanly')
+    before = baseline['NetworkSettings']['Networks']
+    require(set(before)=={'synthetic-data'} and 'db-fixture' in before['synthetic-data']['Aliases'] and
+            'db-fixture' in before['synthetic-data']['DNSNames'],'Initial alias/DNSNames evidence missing')
     docker.docker('start','-a',cid)
     stopped = docker.inspect(cid)
-    require(not stopped['State']['Running'] and stopped['State']['ExitCode']==0 and stopped['NetworkSettings']['Networks']==before,
-            'Stopped container attachment identity drift')
+    require(not stopped['State']['Running'] and stopped['State']['ExitCode']==0,'Synthetic workload did not stop cleanly')
+    require(stopped['NetworkSettings']['Networks']==before,
+            'Stopped attachment drift: '+str(docker.diff_paths(before,stopped['NetworkSettings']['Networks'])))
     stop = docker.stop_engine()
     disk = json.loads((docker.HOME_DIR/'docker'/'containers'/cid/'config.v2.json').read_bytes())
     require(disk['NetworkSettings']['Networks']==before and not disk['State']['Running'] and
