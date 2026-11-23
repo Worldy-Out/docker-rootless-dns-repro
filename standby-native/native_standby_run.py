@@ -223,6 +223,12 @@ def kernel_cases(results):
                 finally:
                     child.terminate()
             results['manualClose'] = {'status':'PASS','newBlocked':True,'establishedBlocked':True,'replayedAckExact':True,'secondWindowDenied':True}
+            require(command('safe-stop')[1]['result']['status']=='STOPPED','Explicit safe-stop receipt missing')
+            await_until(lambda:run('systemctl','is-active',service.UNIT,check=False).returncode!=0,8,'Cleanly stopped service still running')
+            run('systemctl','start',service.UNIT)
+            await_until(service.CONTROL.is_socket,8,'Fresh service did not open control after safe-stop')
+            command('start')
+            results['nativeLifecycle']['safeStop'] = 'PASS'
 
             _,opened = command('window-open',150)
             require(opened['result']['status']=='TEST_WINDOW','Closed fixture prevented a distinct second window')
@@ -299,6 +305,8 @@ def docker_integrity():
     baseline = docker.inspect(cid)
     require(not baseline['State']['Running'] and baseline['State']['ExitCode']==0,'Fixture did not prime cleanly')
     before = baseline['NetworkSettings']['Networks']
+    disk_file = docker.HOME_DIR/'docker'/'containers'/cid/'config.v2.json'
+    before_disk = json.loads(disk_file.read_bytes())['NetworkSettings']['Networks']
     require(set(before)=={'synthetic-data'} and 'db-fixture' in before['synthetic-data']['Aliases'] and
             'db-fixture' in before['synthetic-data']['DNSNames'],'Initial alias/DNSNames evidence missing')
     docker.docker('start','-a',cid)
@@ -307,11 +315,12 @@ def docker_integrity():
     require(stopped['NetworkSettings']['Networks']==before,
             'Stopped attachment drift: '+str(docker.diff_paths(before,stopped['NetworkSettings']['Networks'])))
     stop = docker.stop_engine()
-    disk = json.loads((docker.HOME_DIR/'docker'/'containers'/cid/'config.v2.json').read_bytes())
-    require(disk['NetworkSettings']['Networks']==before and not disk['State']['Running'] and
-            hashlib.sha256(data.read_bytes()).hexdigest()==before_data,'Stopped attachment or database evidence differs')
+    disk = json.loads(disk_file.read_bytes())
+    require(not disk['State']['Running'] and disk['NetworkSettings']['Networks']==before_disk,
+            'Stopped attachment disk drift: '+str(docker.diff_paths(before_disk,disk['NetworkSettings']['Networks'])))
+    require(hashlib.sha256(data.read_bytes()).hexdigest()==before_data,'Synthetic SQL fixture bytes changed')
     return {'status':'PASS','version':engine['ServerVersion'],'attachmentsSha256':service.digest(before),
-            'syntheticDatabaseSha256':before_data,'engineStop':stop}
+            'attachmentDiskSha256':service.digest(before_disk),'syntheticDatabaseSha256':before_data,'engineStop':stop}
 
 
 def cleanup(docker_started):
