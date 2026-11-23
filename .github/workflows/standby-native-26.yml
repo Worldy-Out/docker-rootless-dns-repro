@@ -1,0 +1,35 @@
+name: Standby systemd and kernel safety
+on:
+  push:
+    branches: [codex/standby-native-26]
+    paths: [standby-native/**, .github/workflows/standby-native-26.yml]
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: {persist-credentials: false}
+      - name: Install native runner prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nftables iproute2 openssh-server uidmap slirp4netns fuse-overlayfs dbus-user-session apparmor-utils
+      - name: Run one synthetic Linux scenario
+        env:
+          REVIEW_HEAD_SHA: ${{ github.sha }}
+        run: |
+          cd standby-native
+          sha256sum --check SHA256SUMS
+          sudo env CI=true GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted REVIEW_HEAD_SHA="$REVIEW_HEAD_SHA" python3 -B native_standby_run.py
+      - name: Print the standalone receipt
+        if: always()
+        run: |
+          if test -f standby-native/standby-native-receipt.json; then
+            sha256sum standby-native/standby-native-receipt.json
+            cat standby-native/standby-native-receipt.json
+          fi
+          systemd --version | head -1
+          nft --version
+          sudo journalctl -u uzel-standby.service -u 'uzel-ops@*.service' -u uzel-ops-watchdog.service -n 24 -o cat --no-pager
