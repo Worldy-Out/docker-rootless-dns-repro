@@ -123,6 +123,8 @@ def broker_fixture():
     run('usermod','-p','x','uzel-runtime')
     for path in (RUN,ROOT,LIB,Path('/etc/uzel-standby'),HOME):
         path.mkdir(parents=True,mode=0o755)
+    Path('/etc/wireguard').mkdir(mode=0o700,exist_ok=True)
+    Path('/var/lib/uzel-ops').mkdir(mode=0o700,exist_ok=True)
     ROOT.chmod(0o700)
     HOME.chmod(0o700);os.chown(HOME,UID,UID);os.chown(HOME.parent,UID,UID)
     Path('/etc/uzel-role').write_text('dp-a\n')
